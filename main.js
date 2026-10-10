@@ -74,6 +74,34 @@ const STORE_LIMIT = 400;                  // history.json 最多保留的則數�
 const COMPACT_AT = 60;                    // 超過 60 則，就把比較舊的整理成重點記憶
 const MEMORY_MAX_CHARS = 3000;            // 整理好的記憶最多幾個字
 const MEMORY_MODEL = 'claude-haiku-5-5';  // 整理記憶用的模型（便宜又快）
+// 介面的語言（設定視窗、選單、對話框）。星河說的話還是國語（角色設定）
+const LANGS = ['zh', 'en'];
+const UI_TEXT = {
+  zh: {
+    stop: '停止星河正在做的事', chat: '跟星河聊天', settings: '設定…', quiet: '安靜模式',
+    clear: '清除對話記憶…', quit: '結束', summon: '叫星河回來', hide: '收起星河', show: '顯示星河',
+    appName: '星河', appQuit: '結束星河', edit: '編輯', settingsTitle: '星河的設定',
+    clearTitle: '清除對話記憶', clearMessage: '要清除星河的對話記憶嗎？',
+    clearDetail: '清除之後，星河會忘記你們之前聊過的所有內容（包括整理好的記憶），而且沒辦法復原。',
+    cancel: '取消', clearButton: '清除',
+    needKey: '請先貼上 API 金鑰喔。',
+    badKey: '金鑰裡好像混進了看不見或特殊的字，請到 Claude Console 重新複製，再貼上一次喔。',
+    saveFailed: '金鑰存不進電腦裡…請確認磁碟空間後再按一次儲存。（這次開著的時候還是可以聊天）'
+  },
+  en: {
+    stop: 'Stop What XingHe Is Doing', chat: 'Chat with XingHe', settings: 'Settings…', quiet: 'Quiet Mode',
+    clear: 'Clear Chat Memory…', quit: 'Quit', summon: 'Bring XingHe Back', hide: 'Hide XingHe', show: 'Show XingHe',
+    appName: 'XingHe', appQuit: 'Quit XingHe', edit: 'Edit', settingsTitle: 'XingHe Settings',
+    clearTitle: 'Clear Chat Memory', clearMessage: 'Clear XingHe\'s chat memory?',
+    clearDetail: 'XingHe will forget everything you have talked about (including the saved summary). This can\'t be undone.',
+    cancel: 'Cancel', clearButton: 'Clear',
+    needKey: 'Please paste an API key first.',
+    badKey: 'The key contains invisible or special characters. Please copy it again from Claude Console and paste it.',
+    saveFailed: 'Couldn\'t save the key to this Mac… please check the disk space and click Save again. (Chat still works while XingHe is open.)'
+  }
+};
+const ui = (key) => (UI_TEXT[config.lang] || UI_TEXT.zh)[key] || UI_TEXT.zh[key];
+
 // 別的 App 全螢幕時要不要躲起來
 const FULLSCREEN_MODES = [
   { id: 'video', label: '看影片時（瀏覽器、影片播放器全螢幕）' },
@@ -166,7 +194,7 @@ let petWin = null;
 let settingsWin = null;
 let tray = null;
 let config = {
-  apiKey: '', model: DEFAULT_MODEL, quiet: false, center: null, scale: 1, fullscreenHide: 'video',
+  apiKey: '', model: DEFAULT_MODEL, quiet: false, lang: 'zh', center: null, scale: 1, fullscreenHide: 'video',
   effort: 'low', speed: 'standard', maxTokens: MIN_TOKENS, computer: true, maxFallback: true
 };
 let quitting = false;
@@ -237,6 +265,7 @@ function loadConfig() {
     apiKey: cleanKey(rawKey),
     model: MODELS.some((m) => m.id === c.model) ? c.model : DEFAULT_MODEL,
     quiet: c.quiet === true,
+    lang: LANGS.includes(c.lang) ? c.lang : 'zh',
     center,
     scale: clampScale(c.scale),
     fullscreenHide: FULLSCREEN_MODES.some((m) => m.id === c.fullscreenHide) ? c.fullscreenHide
@@ -1300,12 +1329,12 @@ async function confirmClearHistory() {
   app.focus({ steal: true });
   const { response } = await dialog.showMessageBox({
     type: 'question',
-    buttons: ['取消', '清除'],
+    buttons: [ui('cancel'), ui('clearButton')],
     defaultId: 0,
     cancelId: 0,
-    title: '清除對話記憶',
-    message: '要清除星河的對話記憶嗎？',
-    detail: '清除之後，星河會忘記你們之前聊過的所有內容（包括整理好的記憶），而且沒辦法復原。',
+    title: ui('clearTitle'),
+    message: ui('clearMessage'),
+    detail: ui('clearDetail'),
     icon: nativeImage.createFromPath(path.join(__dirname, 'xinghe.png')).resize({ width: 64, height: 64 })
   });
   if (response !== 1) return;
@@ -1321,15 +1350,15 @@ async function confirmClearHistory() {
 }
 
 function menuItems() {
-  const stop = currentJob ? [{ label: '停止星河正在做的事', click: stopCurrentJob }, { type: 'separator' }] : [];
+  const stop = currentJob ? [{ label: ui('stop'), click: stopCurrentJob }, { type: 'separator' }] : [];
   return [
     ...stop,
-    { label: '跟星河聊天', click: openChat },
-    { label: '設定…', click: openSettings },
-    { label: '安靜模式', type: 'checkbox', checked: config.quiet, click: (item) => setQuiet(item.checked) },
-    { label: '清除對話記憶…', click: () => { confirmClearHistory(); } },
+    { label: ui('chat'), click: openChat },
+    { label: ui('settings'), click: openSettings },
+    { label: ui('quiet'), type: 'checkbox', checked: config.quiet, click: (item) => setQuiet(item.checked) },
+    { label: ui('clear'), click: () => { confirmClearHistory(); } },
     { type: 'separator' },
-    { label: '結束', click: () => app.quit() }
+    { label: ui('quit'), click: () => app.quit() }
   ];
 }
 
@@ -1338,7 +1367,7 @@ function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'trayTemplate.png'));
   icon.setTemplateImage(true);
   tray = new Tray(icon);
-  tray.setToolTip('星河');
+  tray.setToolTip(ui('appName'));
   refreshTrayMenu();
 }
 
@@ -1346,8 +1375,8 @@ function refreshTrayMenu() {
   if (!tray || tray.isDestroyed()) return;
   const visible = petAlive() && petWin.isVisible();
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '叫星河回來', click: summonPet },
-    { label: visible ? '收起星河' : '顯示星河', click: () => (visible ? hidePet() : showPet()) },
+    { label: ui('summon'), click: summonPet },
+    { label: visible ? ui('hide') : ui('show'), click: () => (visible ? hidePet() : showPet()) },
     { type: 'separator' },
     ...menuItems()
   ]));
@@ -1371,7 +1400,7 @@ function openSettings() {
     maximizable: false,
     fullscreenable: false,
     show: false,
-    title: '星河的設定',
+    title: ui('settingsTitle'),
     backgroundColor: '#0d1330',
     webPreferences: {
       preload: path.join(__dirname, 'settings-preload.js'),
@@ -1415,6 +1444,7 @@ function registerIpc() {
     petLoads += 1;
     lastViewKey = '';
     placePet(petCenter);
+    send('pet:lang', config.lang);
     send('pet:sleep', sleeping);
     syncPause();
     const pending = pendingAfterReady;
@@ -1516,8 +1546,23 @@ function registerIpc() {
       scale: config.scale,
       scaleLimits: { min: SCALE_MIN, max: SCALE_MAX },
       fullscreenHide: config.fullscreenHide,
-      fullscreenModes: FULLSCREEN_MODES
+      fullscreenModes: FULLSCREEN_MODES,
+      lang: config.lang
     };
+  });
+
+  // 切換介面語言：馬上存起來，選單、輸入框也跟著換
+  ipcMain.handle('settings:set-lang', (event, lang) => {
+    if (!isFrom(event, settingsWin) || !LANGS.includes(lang)) return false;
+    if (config.lang !== lang) {
+      config.lang = lang;
+      saveConfig();
+      buildAppMenu();
+      if (tray && !tray.isDestroyed()) tray.setToolTip(ui('appName'));
+      refreshTrayMenu();
+      send('pet:lang', lang);
+    }
+    return true;
   });
 
   // 拖動「大小」時馬上看到效果（按儲存才會記住）
@@ -1573,9 +1618,9 @@ function registerIpc() {
     const apiKey = cleanKey(data && data.apiKey);
     const model = MODELS.some((m) => m.id === (data && data.model)) ? data.model : DEFAULT_MODEL;
     const maxFallback = !(data && data.maxFallback === false);
-    if (!apiKey && !maxFallback) return { ok: false, message: '請先貼上 API 金鑰喔。' };
+    if (!apiKey && !maxFallback) return { ok: false, message: ui('needKey') };
     if (apiKey && !/^[\x21-\x7e]+$/.test(apiKey)) {
-      return { ok: false, message: '金鑰裡好像混進了看不見或特殊的字，請到 Claude Console 重新複製，再貼上一次喔。' };
+      return { ok: false, message: ui('badKey') };
     }
     const keyChanged = apiKey !== config.apiKey;
     config.apiKey = apiKey;
@@ -1599,7 +1644,7 @@ function registerIpc() {
     ensureOnScreen();
     checkFullscreen();
     if (!saveConfig()) {
-      return { ok: false, message: '金鑰存不進電腦裡…請確認磁碟空間後再按一次儲存。（這次開著的時候還是可以聊天）' };
+      return { ok: false, message: ui('saveFailed') };
     }
     if (keyChanged && apiKey) say(lines.misc.keySaved);
     setTimeout(() => {
@@ -1690,16 +1735,16 @@ function scheduleCare() {
 function buildAppMenu() {
   // 有 editMenu,⌘C / ⌘V / ⌘A 才能在輸入框裡用
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    { label: '星河', submenu: [{ role: 'quit', label: '結束星河' }] },
-    { role: 'editMenu', label: '編輯' }
+    { label: ui('appName'), submenu: [{ role: 'quit', label: ui('appQuit') }] },
+    { role: 'editMenu', label: ui('edit') }
   ]));
 }
 
 function start() {
   if (process.platform === 'darwin' && app.dock) app.dock.hide();
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-  buildAppMenu();
   loadConfig();
+  buildAppMenu();   // 要在讀完設定之後（才知道用哪個語言）
   registerIpc();
   createPetWindow();
   createTray();

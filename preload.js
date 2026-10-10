@@ -21,5 +21,6 @@ contextBridge.exposeInMainWorld('xinghe', {
   onWorking: (cb) => ipcRenderer.on('pet:working', (_e, w) => cb(w || {})),
   onBusy: (cb) => ipcRenderer.on('pet:busy', () => cb()),
   onLayout: (cb) => ipcRenderer.on('pet:layout', (_e, v) => cb(v || null)),
+  onLang: (cb) => ipcRenderer.on('pet:lang', (_e, v) => cb(String(v || 'zh'))),
   onReply: (cb) => ipcRenderer.on('pet:reply', (_e, r) => cb(r || {}))
 });

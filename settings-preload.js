@@ -12,5 +12,6 @@ contextBridge.exposeInMainWorld('settingsApi', {
   maxLogin: () => ipcRenderer.invoke('settings:max-login'),
   fit: (height) => ipcRenderer.send('settings:fit', height),
   previewScale: (value) => ipcRenderer.send('settings:preview-scale', Number(value)),
+  setLang: (lang) => ipcRenderer.invoke('settings:set-lang', String(lang)),
   close: () => ipcRenderer.send('settings:close')
 });

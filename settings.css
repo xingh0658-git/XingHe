@@ -299,6 +299,25 @@ h2.gap {
   margin-top: 22px;
 }
 
+/* 介面語言：國語 / English */
+.lang-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.lang-label {
+  font-weight: 600;
+  color: var(--lavender);
+}
+
+.seg.lang {
+  width: 210px;
+  height: 34px;
+}
+
 label.check {
   display: flex;
   align-items: center;
