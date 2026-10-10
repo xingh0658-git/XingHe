@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'">
+  <title>星河的設定</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <main>
+    <header>
+      <img src="xinghe.png" alt="" draggable="false">
+      <div>
+        <h1>星河的設定</h1>
+        <p>貼上 Claude API 金鑰，星河就能跟你聊天囉！</p>
+      </div>
+    </header>
+
+    <div class="cols">
+    <section>
+    <div id="steps">
+      <ol class="steps">
+        <li>按「打開 Claude Console」，登入你的帳號</li>
+        <li>到「API Keys」建立一把新的金鑰，按複製</li>
+        <li>回到這裡按「從剪貼簿貼上」，再按「儲存」</li>
+      </ol>
+      <p class="tip">找不到這個視窗的話：對星河按右鍵 →「設定…」，或按螢幕最上面選單列的星星 →「設定…」</p>
+    </div>
+
+    <label for="key">API 金鑰</label>
+    <div class="key-row">
+      <input id="key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+      <button id="toggle" type="button" class="small">顯示</button>
+    </div>
+    <div class="row">
+      <button id="paste" type="button">從剪貼簿貼上</button>
+      <button id="console" type="button">打開 Claude Console</button>
+    </div>
+
+    <label for="model">模型</label>
+    <select id="model"></select>
+
+    <div class="grid2">
+      <div>
+        <label for="effort">努力程度</label>
+        <select id="effort"></select>
+      </div>
+      <div>
+        <label>速度</label>
+        <div class="seg" id="speed">
+          <button type="button" data-v="standard">標準</button>
+          <button type="button" data-v="fast">快速</button>
+        </div>
+      </div>
+    </div>
+    <p class="note" id="speed-note"></p>
+
+    <label for="tokens">最大 Token 數</label>
+    <div class="slider-row">
+      <input id="tokens" type="range">
+      <input id="tokens-num" type="number">
+    </div>
+    <p class="note">星河每次回覆的上限（思考用掉的也算），最多 128,000（沒辦法無限）。努力程度調高時星河會自動放寬；操作電腦的工作不受這個限制。</p>
+
+    </section>
+
+    <section>
+    <h2>星河的樣子</h2>
+    <label for="scale">大小　<span id="scale-val" class="val">100%</span></label>
+    <div class="slider-row">
+      <span class="tick">小</span>
+      <input id="scale" type="range">
+      <span class="tick">大</span>
+    </div>
+    <label for="fs-hide">全螢幕時自動隱藏星河</label>
+    <select id="fs-hide"></select>
+
+    <h2 class="gap">電腦控制與 Claude 帳號</h2>
+    <label class="check"><input type="checkbox" id="computer"> 讓星河幫我操作電腦（完全自動，不會先問你）</label>
+    <label class="check"><input type="checkbox" id="max-fallback"> API 額度用完時，改用 Claude 帳號的額度</label>
+    <div class="status-row">
+      <span id="claude-status">檢查 Claude Code 中…</span>
+      <button id="max-login" type="button" class="small" hidden>登入 Claude</button>
+    </div>
+
+    <p class="note">星河會把你交代的事交給 Claude Code 自動完成，做完再告訴你結果。做到一半想停：對星河按右鍵 →「停止星河正在做的事」。</p>
+    <p class="note">Claude 帳號要先登入一次：按「登入 Claude」，在打開的瀏覽器登入你的 Claude 帳號。用 Claude 帳號時不會開快速模式。</p>
+
+    <p id="hint" class="hint"></p>
+    </section>
+    </div>
+
+    <footer>
+      <button id="cancel" type="button" class="ghost">取消</button>
+      <button id="save" type="button" class="primary">儲存</button>
+    </footer>
+  </main>
+  <script src="settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "xinghe-desktop-pet",
+  "productName": "星河",
+  "version": "1.0.0",
+  "description": "狐狸龍星河的 macOS 桌寵",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "44.4.5"
+  }
+}

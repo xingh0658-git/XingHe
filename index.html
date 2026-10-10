@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'">
+  <title>星河</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="stage">
+    <!-- 對話泡泡 -->
+    <div id="bubble-area">
+      <div id="bubble" class="interactive">
+        <div id="bubble-scroll"><div id="bubble-text"></div></div>
+        <div class="dots" aria-label="星河在想…"><i></i><i></i><i></i></div>
+        <div class="work"><div class="work-task"></div><div class="work-step"></div></div>
+      </div>
+    </div>
+
+    <!-- 星河本體 -->
+    <div id="pet">
+      <div class="halo"></div>
+      <div class="ground"></div>
+      <div id="sparkles"></div>
+      <div class="scene">
+        <div id="card" class="interactive">
+          <div class="back">
+            <div class="back-star"><i></i></div>
+            <div class="back-name">星河</div>
+          </div>
+          <div class="face">
+            <img src="xinghe.png" alt="星河" draggable="false">
+            <div class="glare"></div>
+            <div class="shine"></div>
+            <div class="rim"><i></i></div>
+          </div>
+        </div>
+      </div>
+      <div id="zzz"><span>Z</span><span>z</span><span>z</span></div>
+    </div>
+
+    <!-- 聊天輸入框 -->
+    <div id="chat" class="interactive">
+      <input id="chat-input" type="text" maxlength="500" autocomplete="off" spellcheck="false"
+             placeholder="跟星河說說話…（Enter 送出）">
+      <button id="send" type="button" title="送出">✦</button>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

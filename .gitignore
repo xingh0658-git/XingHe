@@ -1,0 +1,8 @@
+# 太大或每台電腦不一樣的東西（啟動星河.command 會自動準備）
+node_modules
+node_modules.nosync/
+.node.nosync/
+# git 的資料夾（加上 .nosync，iCloud 才不會去同步它）
+.git.nosync/
+# macOS 自動產生的檔案
+.DS_Store

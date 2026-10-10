@@ -1,0 +1,589 @@
+/* 星河桌寵的畫面樣式：夜空、發光星星、立體卡片 */
+
+:root {
+  --cyan: #5ef2ff;
+  --lavender: #c9b3ff;
+  --gold: #ffd84a;
+  --ink: #eef7ff;
+  --navy: #0b1638;
+  --card-size: 170px;
+  --card-radius: 20%;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: -apple-system, "PingFang TC", "Heiti TC", sans-serif;
+  color: var(--ink);
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* 視窗大小跟著星河的大小改變；版面由 renderer.js 依主程式給的位置排好才顯示 */
+#stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+body:not(.laid-out) #stage {
+  visibility: hidden;
+}
+
+/* ───────── 對話泡泡 ───────── */
+#bubble-area {
+  position: absolute;
+  top: 6px;
+  left: 0;
+  right: 0;
+  height: 176px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+/* 星河在螢幕最上面時，泡泡改到下面 */
+#bubble-area.down {
+  justify-content: flex-start;
+}
+
+#bubble {
+  position: relative;
+  left: 11px;
+  max-width: 298px;
+  min-width: 70px;
+  padding: 10px 14px;
+  margin-bottom: 9px;
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(24, 34, 78, 0.95), rgba(11, 17, 44, 0.95));
+  border: 1px solid rgba(94, 242, 255, 0.6);
+  box-shadow:
+    inset 0 0 0 1px rgba(201, 179, 255, 0.15),
+    0 0 12px rgba(94, 242, 255, 0.35),
+    0 0 24px rgba(201, 179, 255, 0.22);
+  font-size: 14px;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  word-break: break-word;
+  pointer-events: auto;
+  cursor: pointer;
+  transform-origin: 50% 100%;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px) scale(0.92);
+  transition: opacity 0.22s ease, transform 0.22s ease, visibility 0s linear 0.22s;
+}
+
+#bubble-area.down #bubble {
+  margin-bottom: 0;
+  margin-top: 9px;
+  transform-origin: 50% 0;
+  transform: translateY(-8px) scale(0.92);
+}
+
+#bubble.show,
+#bubble-area.down #bubble.show {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity 0.22s ease, transform 0.22s ease, visibility 0s;
+}
+
+/* 泡泡的小尾巴 */
+#bubble::after {
+  content: '';
+  position: absolute;
+  left: var(--tail, 50%);
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  background: rgb(12, 18, 46);
+  border-right: 1px solid rgba(94, 242, 255, 0.6);
+  border-bottom: 1px solid rgba(94, 242, 255, 0.6);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+#bubble-area.down #bubble::after {
+  bottom: auto;
+  top: -7px;
+  background: rgb(22, 32, 74);
+  transform: translateX(-50%) rotate(225deg);
+}
+
+#bubble-scroll {
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+#bubble-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+#bubble-scroll::-webkit-scrollbar-thumb {
+  background: rgba(94, 242, 255, 0.4);
+  border-radius: 2px;
+}
+
+#bubble-text .action {
+  color: var(--lavender);
+}
+
+/* 等待回覆時的三個跳動的點 */
+.dots {
+  display: none;
+  gap: 6px;
+  padding: 5px 4px 3px;
+  justify-content: center;
+}
+
+#bubble.thinking .dots {
+  display: flex;
+}
+
+#bubble.thinking #bubble-scroll {
+  display: none;
+}
+
+/* 操作電腦時：顯示正在做什麼 */
+.work {
+  display: none;
+  max-width: 260px;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* 空間不夠時（星河靠近螢幕上緣），工作中的泡泡不顯示三個點 */
+#bubble.tight.working .dots {
+  display: none !important;
+}
+
+#bubble.thinking.working .work {
+  display: block;
+}
+
+.work-task {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--ink);
+}
+
+.work-step {
+  color: var(--lavender);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+  animation: dot-bounce 1.1s ease-in-out infinite;
+}
+
+.dots i:nth-child(2) {
+  background: #a8dcff;
+  animation-delay: 0.15s;
+}
+
+.dots i:nth-child(3) {
+  background: var(--lavender);
+  box-shadow: 0 0 6px var(--lavender);
+  animation-delay: 0.3s;
+}
+
+@keyframes dot-bounce {
+  0%, 70%, 100% { transform: translateY(0); opacity: 0.45; }
+  35% { transform: translateY(-7px); opacity: 1; }
+}
+
+/* ───────── 星河本體 ───────── */
+/* 卡片中心在 #pet 的 (160, 95)；調整大小時以卡片中心縮放 */
+#pet {
+  position: absolute;
+  top: 180px;
+  left: 0;
+  width: 320px;
+  height: 222px;
+  pointer-events: none;
+  transform-origin: 160px 95px;
+}
+
+/* 卡片背後的光暈 */
+.halo {
+  position: absolute;
+  left: 40px;
+  top: -25px;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(94, 242, 255, 0.26) 0%,
+    rgba(201, 179, 255, 0.16) 42%,
+    rgba(201, 179, 255, 0) 68%);
+  will-change: transform, opacity;
+}
+
+/* 腳下的光影 */
+.ground {
+  position: absolute;
+  left: 100px;
+  top: 192px;
+  width: 120px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center,
+    rgba(94, 242, 255, 0.32) 0%,
+    rgba(80, 90, 200, 0.16) 45%,
+    rgba(0, 0, 0, 0) 72%);
+  will-change: transform, opacity;
+}
+
+.scene {
+  position: absolute;
+  left: 75px;
+  top: 10px;
+  width: var(--card-size);
+  height: var(--card-size);
+  perspective: 700px;
+  pointer-events: none;
+}
+
+#card {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  will-change: transform;
+  pointer-events: auto;
+  cursor: grab;
+}
+
+#card.dragging {
+  cursor: grabbing;
+}
+
+/* 卡片厚度：背後一層層深藍色的邊 */
+.layer {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--card-radius);
+  background: linear-gradient(150deg, #1d3f86, #0a1a46 70%);
+  border: 1px solid rgba(94, 242, 255, 0.3);
+}
+
+.layer.deep {
+  background: linear-gradient(150deg, #142c63, #081333 70%);
+  border-color: rgba(201, 179, 255, 0.28);
+}
+
+/* 正面 */
+.face {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  transform: translateZ(1px);
+  backface-visibility: hidden;
+  background:
+    radial-gradient(circle at 50% 58%, rgba(94, 242, 255, 0.28), rgba(0, 0, 0, 0) 58%),
+    radial-gradient(circle at 18% 20%, rgba(255, 255, 255, 0.85) 0 1px, rgba(0, 0, 0, 0) 2px),
+    radial-gradient(circle at 82% 16%, rgba(255, 236, 160, 0.9) 0 1.2px, rgba(0, 0, 0, 0) 2.5px),
+    radial-gradient(circle at 12% 70%, rgba(201, 179, 255, 0.8) 0 1px, rgba(0, 0, 0, 0) 2px),
+    radial-gradient(circle at 88% 64%, rgba(255, 255, 255, 0.7) 0 1px, rgba(0, 0, 0, 0) 2px),
+    radial-gradient(circle at 70% 88%, rgba(255, 236, 160, 0.7) 0 1px, rgba(0, 0, 0, 0) 2px),
+    linear-gradient(165deg, #1d3376 0%, #111c4a 55%, #0a1033 100%);
+  box-shadow:
+    0 0 10px 1px rgba(94, 242, 255, 0.55),
+    0 0 24px 5px rgba(201, 179, 255, 0.3);
+}
+
+.face img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 6px rgba(94, 242, 255, 0.35));
+  pointer-events: none;
+  -webkit-user-drag: none;
+  transition: filter 1.2s ease;
+}
+
+/* 會隨角度移動的光澤反光 */
+.glare {
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  left: -100%;
+  width: 300%;
+  background: linear-gradient(105deg,
+    rgba(255, 255, 255, 0) 41%,
+    rgba(255, 255, 255, 0.38) 50%,
+    rgba(230, 245, 255, 0.12) 54%,
+    rgba(255, 255, 255, 0) 60%);
+  opacity: 0.5;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+/* 跟著角度移動的柔光點 */
+.shine {
+  position: absolute;
+  left: -30%;
+  top: -30%;
+  width: 160%;
+  height: 160%;
+  background: radial-gradient(circle at 50% 50%,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(255, 255, 255, 0) 30%);
+  will-change: transform;
+  pointer-events: none;
+}
+
+/* 邊緣青色、淡紫色流動的光 */
+.rim {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  padding: 2px;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.rim i {
+  position: absolute;
+  left: -25%;
+  top: -25%;
+  width: 150%;
+  height: 150%;
+  background: conic-gradient(
+    var(--cyan), var(--lavender), #ffffff, var(--cyan), var(--lavender), #8fb8ff, var(--cyan));
+  will-change: transform;
+}
+
+/* 背面（轉圈時看得到） */
+.back {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--card-radius);
+  transform: translateZ(-11px) rotateY(180deg);
+  backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(94, 242, 255, 0.22), rgba(0, 0, 0, 0) 55%),
+    radial-gradient(circle at 22% 24%, rgba(255, 255, 255, 0.7) 0 1px, rgba(0, 0, 0, 0) 2px),
+    radial-gradient(circle at 78% 30%, rgba(255, 255, 255, 0.6) 0 1px, rgba(0, 0, 0, 0) 2px),
+    radial-gradient(circle at 30% 78%, rgba(255, 255, 255, 0.5) 0 1px, rgba(0, 0, 0, 0) 2px),
+    radial-gradient(circle at 74% 74%, rgba(255, 255, 255, 0.6) 0 1px, rgba(0, 0, 0, 0) 2px),
+    linear-gradient(160deg, #1b3577, #0a1438 75%);
+  border: 1.5px solid rgba(94, 242, 255, 0.6);
+  box-shadow: 0 0 12px rgba(94, 242, 255, 0.45), 0 0 24px rgba(201, 179, 255, 0.28);
+}
+
+.back-star {
+  filter: drop-shadow(0 0 8px rgba(255, 216, 74, 0.9));
+}
+
+.back-star i {
+  display: block;
+  width: 58px;
+  height: 58px;
+  background: linear-gradient(160deg, #fff6b0, var(--gold) 55%, #ffb12e);
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+
+.back-name {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  color: var(--lavender);
+  text-shadow: 0 0 8px rgba(201, 179, 255, 0.8);
+}
+
+/* ───────── 周圍閃爍的小星星和光點 ───────── */
+#sparkles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.spark {
+  position: absolute;
+  opacity: 0.2;
+  filter: drop-shadow(0 0 4px var(--glow, rgba(255, 216, 74, 0.9)));
+  will-change: transform, opacity;
+}
+
+.spark i {
+  display: block;
+  width: var(--size, 12px);
+  height: var(--size, 12px);
+  background: var(--color, var(--gold));
+}
+
+.spark.star5 i {
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+
+.spark.star4 i {
+  clip-path: polygon(50% 0%, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0% 50%, 40% 40%);
+}
+
+.ember {
+  position: absolute;
+  width: var(--size, 4px);
+  height: var(--size, 4px);
+  border-radius: 50%;
+  background: #ffe27a;
+  box-shadow: 0 0 6px 1px rgba(255, 196, 60, 0.9);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* ───────── 打瞌睡 ───────── */
+#zzz {
+  position: absolute;
+  left: 228px;
+  top: -6px;
+  width: 70px;
+  height: 80px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+
+body.sleeping #zzz {
+  opacity: 1;
+}
+
+#zzz span {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  font-weight: 700;
+  color: var(--lavender);
+  text-shadow: 0 0 6px rgba(201, 179, 255, 0.9), 0 0 12px rgba(94, 242, 255, 0.6);
+  opacity: 0;
+}
+
+body.sleeping #zzz span {
+  animation: zzz-float 3.6s ease-in-out infinite;
+}
+
+#zzz span:nth-child(1) { font-size: 22px; }
+#zzz span:nth-child(2) { font-size: 17px; animation-delay: 1.2s !important; }
+#zzz span:nth-child(3) { font-size: 13px; animation-delay: 2.4s !important; }
+
+@keyframes zzz-float {
+  0% { opacity: 0; transform: translate(0, 0) rotate(-10deg); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(34px, -62px) rotate(12deg); }
+}
+
+body.sleeping .face img {
+  filter: brightness(0.7) saturate(0.85) drop-shadow(0 0 6px rgba(94, 242, 255, 0.2));
+}
+
+/* 收起或鎖定螢幕時，所有動畫暫停 */
+body.paused *,
+body.paused *::before,
+body.paused *::after {
+  animation-play-state: paused !important;
+}
+
+/* ───────── 聊天輸入框 ───────── */
+#chat {
+  position: absolute;
+  left: 14px;
+  top: 408px;
+  width: 292px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 5px 5px 14px;
+  border-radius: 21px;
+  background: rgba(12, 18, 46, 0.94);
+  border: 1px solid rgba(94, 242, 255, 0.65);
+  box-shadow: 0 0 12px rgba(94, 242, 255, 0.35), 0 0 22px rgba(201, 179, 255, 0.2);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s linear 0.2s;
+}
+
+#chat.show {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s;
+}
+
+#chat.shake {
+  animation: shake 0.35s ease;
+}
+
+@keyframes shake {
+  25% { transform: translateX(-5px); }
+  50% { transform: translateX(5px); }
+  75% { transform: translateX(-3px); }
+}
+
+#chat-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  caret-color: var(--cyan);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+#chat-input::placeholder {
+  color: rgba(201, 179, 255, 0.62);
+}
+
+#send {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--cyan), var(--lavender));
+  color: var(--navy);
+  font-size: 16px;
+  line-height: 32px;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(94, 242, 255, 0.6);
+}
+
+#send:active {
+  transform: scale(0.92);
+}
