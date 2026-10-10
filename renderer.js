@@ -199,12 +199,10 @@
 
   new ResizeObserver(() => positionBubble()).observe(bubble);
 
-  // 介面語言：輸入框的提示文字（星河說的話還是國語）
+  // 介面語言：送出按鈕的提示文字
   api.onLang((lang) => {
     uiLang = lang === 'en' ? 'en' : 'zh';
-    const en = uiLang === 'en';
-    input.placeholder = en ? 'Say something to XingHe… (Enter to send)' : '跟星河說說話…（Enter 送出）';
-    sendBtn.title = en ? 'Send' : '送出';
+    sendBtn.title = uiLang === 'en' ? 'Send' : '送出';
   });
   api.onLayout(applyLayout);
 

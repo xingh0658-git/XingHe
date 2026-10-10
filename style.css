@@ -566,10 +566,6 @@ body.paused *::after {
   -webkit-user-select: text;
 }
 
-#chat-input::placeholder {
-  color: rgba(201, 179, 255, 0.62);
-}
-
 #send {
   flex: none;
   width: 32px;
