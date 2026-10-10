@@ -149,22 +149,28 @@ function classify(text) {
 }
 
 // 把工具呼叫變成給爸爸看的簡短說明
-function describeTool(block) {
+const STEP_TEXT = {
+  zh: { Bash: '執行指令：', Read: '讀取：', Write: '建立檔案：', Edit: '修改檔案：', Find: '尋找：', WebFetch: '打開網頁：', WebSearch: '上網搜尋：', TodoWrite: '整理待辦步驟', use: '使用 ' },
+  en: { Bash: 'Running: ', Read: 'Reading: ', Write: 'Creating: ', Edit: 'Editing: ', Find: 'Searching: ', WebFetch: 'Opening: ', WebSearch: 'Searching the web: ', TodoWrite: 'Planning the steps', use: 'Using ' }
+};
+
+function describeTool(block, lang = 'zh') {
   const input = block.input || {};
   const name = block.name || '';
+  const w = STEP_TEXT[lang] || STEP_TEXT.zh;
   const short = (s, n = 40) => {
     const one = String(s || '').replace(/\s+/g, ' ').trim();
     return one.length > n ? `${one.slice(0, n)}…` : one;
   };
-  if (name === 'Bash') return `執行指令：${short(input.description || input.command)}`;
-  if (name === 'Read') return `讀取：${short(path.basename(input.file_path || ''))}`;
-  if (name === 'Write') return `建立檔案：${short(path.basename(input.file_path || ''))}`;
-  if (name === 'Edit' || name === 'MultiEdit') return `修改檔案：${short(path.basename(input.file_path || ''))}`;
-  if (name === 'Glob' || name === 'Grep') return `尋找：${short(input.pattern)}`;
-  if (name === 'WebFetch') return `打開網頁：${short(input.url)}`;
-  if (name === 'WebSearch') return `上網搜尋：${short(input.query)}`;
-  if (name === 'TodoWrite') return '整理待辦步驟';
-  return `使用 ${name}`;
+  if (name === 'Bash') return `${w.Bash}${short(input.description || input.command)}`;
+  if (name === 'Read') return `${w.Read}${short(path.basename(input.file_path || ''))}`;
+  if (name === 'Write') return `${w.Write}${short(path.basename(input.file_path || ''))}`;
+  if (name === 'Edit' || name === 'MultiEdit') return `${w.Edit}${short(path.basename(input.file_path || ''))}`;
+  if (name === 'Glob' || name === 'Grep') return `${w.Find}${short(input.pattern)}`;
+  if (name === 'WebFetch') return `${w.WebFetch}${short(input.url)}`;
+  if (name === 'WebSearch') return `${w.WebSearch}${short(input.query)}`;
+  if (name === 'TodoWrite') return w.TodoWrite;
+  return `${w.use}${name}`;
 }
 
 /**
@@ -174,7 +180,7 @@ function describeTool(block) {
 function run(opts) {
   const {
     bin, prompt, appendSystemPrompt, model, effort, fast, apiKey,
-    allowTools = true, onProgress, signal, timeoutMs = RUN_TIMEOUT_MS
+    allowTools = true, onProgress, signal, timeoutMs = RUN_TIMEOUT_MS, lang = 'zh'
   } = opts;
   return new Promise((resolve) => {
     if (!bin) {
@@ -255,7 +261,7 @@ function run(opts) {
       if (msg.type === 'assistant' && msg.message && Array.isArray(msg.message.content)) {
         for (const block of msg.message.content) {
           if (block.type === 'tool_use' && !finished) {
-            const step = describeTool(block);
+            const step = describeTool(block, lang);
             steps.push(step);
             if (onProgress) onProgress(step);
           }

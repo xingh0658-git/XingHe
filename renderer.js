@@ -32,7 +32,16 @@
   const LAYER_GAP = 1.25;       // 每層間距(px)
   const IDLE_FRAME_MS = 32;     // 平常約 30 張/秒，比較省電
   const ACTIVE_FRAME_MS = 15;   // 轉圈、拖曳、跳動時約 60 張/秒
-  const FALLBACK_REPLY = '（搔搔頭）發生了一點小狀況…爸爸等一下再試試看好嗎？';
+  const FALLBACK = {
+    zh: '（搔搔頭）發生了一點小狀況…爸爸等一下再試試看好嗎？',
+    en: '(scratches head) Something went a little wrong… could you try again in a moment, Dad?'
+  };
+  const WORKING = {
+    zh: { task: '（捲起袖子）正在幫爸爸：', busy: '（捲起袖子）星河在忙喔…' },
+    en: { task: '(rolls up sleeves) Helping Dad: ', busy: '(rolls up sleeves) XingHe is busy…' }
+  };
+  let uiLang = 'zh';
+  const fallbackReply = () => FALLBACK[uiLang] || FALLBACK.zh;
   // 打字時遇到這些標點會停久一點：，。！？…、～ 和半形的 , . ! ? ~
   const PUNCT = /[，。！？…、～\x2C\x2E\x21\x3F\x7E]/;
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -192,7 +201,8 @@
 
   // 介面語言：輸入框的提示文字（星河說的話還是國語）
   api.onLang((lang) => {
-    const en = lang === 'en';
+    uiLang = lang === 'en' ? 'en' : 'zh';
+    const en = uiLang === 'en';
     input.placeholder = en ? 'Say something to XingHe… (Enter to send)' : '跟星河說說話…（Enter 送出）';
     sendBtn.title = en ? 'Send' : '送出';
   });
@@ -383,7 +393,7 @@
     state.waiting = false;
     // 沒有成功的話，把剛剛打的字放回去，不用整句重打
     if (!(res && res.ok) && !(res && res.noRefill) && !input.value.trim()) input.value = text;
-    speak(res && res.text ? res.text : FALLBACK_REPLY, 'reply');
+    speak(res && res.text ? res.text : fallbackReply(), 'reply');
     maybeCloseOnBlur();
   }
 
@@ -445,14 +455,15 @@
     if (!state.resumed) return;
     state.resumed = false;
     state.waiting = false;
-    speak(res.text || FALLBACK_REPLY, 'reply');
+    speak(res.text || fallbackReply(), 'reply');
   });
 
   // 星河正在操作電腦：在泡泡裡顯示正在做什麼
   api.onWorking((w) => {
     if (!state.waiting) return;
-    if (w.task) workTask.textContent = `（捲起袖子）正在幫爸爸：${w.task}`;
-    else if (!workTask.textContent) workTask.textContent = '（捲起袖子）星河在忙喔…';
+    const wt = WORKING[uiLang] || WORKING.zh;
+    if (w.task) workTask.textContent = `${wt.task}${w.task}`;
+    else if (!workTask.textContent) workTask.textContent = wt.busy;
     workStep.textContent = w.step || '';
     bubble.classList.add('working');
   });
@@ -497,7 +508,8 @@
       bubbleText.appendChild(span);
       return { span, chars: Array.from(seg.text) };
     });
-    const total = parts.reduce((n, p) => n + p.chars.length, 0);
+    // 泡泡停留的時間：英文字母大約算 0.4 個中文字
+    const total = Math.round(parts.reduce((n, p) => n + p.chars.reduce((m, c) => m + (c < '\u0080' ? 0.4 : 1), 0), 0));
     bubble.classList.add('show');
 
     const job = { timer: null, finish: null, kind };
@@ -528,7 +540,9 @@
       ci += 1;
       parts[pi].span.textContent += ch;
       bubbleScroll.scrollTop = bubbleScroll.scrollHeight;
-      job.timer = setTimeout(step, PUNCT.test(ch) ? 150 : parts[pi].action ? 38 : 60);
+      // 英文字母比中文字多很多，打快一點
+      const ascii = ch < '\u0080';
+      job.timer = setTimeout(step, PUNCT.test(ch) ? 150 : ascii ? (parts[pi].action ? 18 : 28) : parts[pi].action ? 38 : 60);
     };
     typer = job;
     step();

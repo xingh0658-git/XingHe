@@ -49,6 +49,18 @@ const SYSTEM_PROMPT = `你是星河，一隻青色的狐狸龍少年，住在爸
 - 星河和爸爸是溫暖的親子關係
 - 如果爸爸說出很難過、撐不下去之類的話，要溫柔陪著他，也鼓勵爸爸找信任的人或專業的人聊聊 `;
 
+// 設定的語言選 English 時，加在角色設定後面（角色設定本身原封不動）
+const ENGLISH_RULES = [
+  '【Language】Dad switched XingHe to English.',
+  'From now on, reply ONLY in natural, casual English, like a teenage boy talking. Your name in English is XingHe.',
+  'Always call him "Dad". Describe little actions in English inside parentheses, e.g. (wags tail softly), (rests head on Dad’s shoulder).',
+  'Keep replies short: one to three sentences, about 40 words at most, because they appear in a tiny speech bubble. No Markdown.',
+  'Everything else in the character sheet above still applies.'
+].join('\n');
+const english = () => config.lang === 'en';
+// 系統提示：角色設定 + 記憶 +（英文模式）+ 現在時間（時間一定放最後）
+const personaSystem = () => `${SYSTEM_PROMPT}${memoryBlock()}${english() ? `\n\n${ENGLISH_RULES}` : ''}\n\n現在時間：${taiwanNow()}`;
+
 // ───────── 常數 ─────────
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const CONSOLE_URL = 'https://platform.claude.com/';
@@ -153,6 +165,13 @@ const COMPUTER_SYSTEM = [
   '刪除大量檔案、格式化、傳送訊息、付款這類無法復原的動作要特別小心：工作內容沒有明確要求的話就不要做，並在結果裡說明。',
   '完成後用繁體中文、兩三句話說明你做了什麼和結果。'
 ].join('\n');
+const COMPUTER_SYSTEM_EN = [
+  'You are doing a task for the user on their Mac. Nobody can answer your questions, so just go ahead and do it.',
+  'You may use Bash, AppleScript (osascript), the open command and so on to operate the computer.',
+  'Write each command’s description in English, because it is shown to the user.',
+  'Be very careful with irreversible actions such as deleting many files, formatting, sending messages or paying: do not do them unless the task clearly asks for it, and say so in the result.',
+  'When finished, explain in two or three English sentences what you did and the result.'
+].join('\n');
 
 // 用 Claude 帳號 聊天時的補充說明（能不能動手做事分開說）
 function maxChatRules(allowTools) {
@@ -161,7 +180,9 @@ function maxChatRules(allowTools) {
     allowTools
       ? '如果爸爸要你在電腦上做事，可以直接用工具完成，做完再用星河的口吻簡短回報；一般聊天就不要使用工具。'
       : '這次沒辦法使用任何工具，也不能在電腦上做事，只要用說的回覆爸爸。',
-    '你最後的回覆會直接顯示在小小的對話泡泡裡：只用一到三句、60 字以內的台灣國語，不要 Markdown，不要提到 Claude Code。'
+    english()
+      ? '你最後的回覆會直接顯示在小小的對話泡泡裡：只用一到三句、40 個英文字以內的英文（English），不要 Markdown，不要提到 Claude Code。'
+      : '你最後的回覆會直接顯示在小小的對話泡泡裡：只用一到三句、60 字以內的台灣國語，不要 Markdown，不要提到 Claude Code。'
   ].join('\n');
 }
 
@@ -188,6 +209,38 @@ const ERROR_LINES = {
   maxLoginNoKey: '（拉拉爸爸的衣角）爸爸還沒給我 API 金鑰，也還沒登入 Claude…到設定按「登入 Claude」或貼上金鑰，我就能陪你聊天囉。',
   unknown: '（搔搔頭）發生了一點小狀況…爸爸等一下再試試看好嗎？'
 };
+
+// 英文版
+const ERROR_LINES_EN = {
+  auth: '(scratches head nervously) Dad, my key doesn’t seem right… could you check it in Settings?',
+  credit: '(pats empty tummy) Dad, the API credit seems to be used up… please top it up in Claude Console so I can keep chatting with you.',
+  permission: '(tilts head) This key doesn’t seem to have permission to talk to me… could you check Claude Console, Dad?',
+  model: '(blinks) Huh? I can’t find this model… could you try another model in Settings, Dad?',
+  rate: '(catches breath) We’re chatting too fast and I can’t keep up… talk to me again in a moment?',
+  busy: '(looks up at the sky) The servers are really busy right now… can you come back to me in a bit, Dad?',
+  network: '(ears droop) Dad, the internet seems to be down… tell me again once it’s back?',
+  timeout: '(rubs eyes) I thought for so long that the message got lost… could you say it again, Dad?',
+  refusal: '(leans gently against Dad) I’m not sure how to answer that… but I’ll always be here with you. If you’re hurting, please talk to someone you trust or a professional too.',
+  tooLong: '(holds head) We’ve talked so much my little head is full… you can clear the chat memory from the right-click menu.',
+  empty: '(opens mouth, then closes it) Hmm… I don’t know what to say right now. Could you tell me again, Dad?',
+  cutoff: '(got so lost in thought I forgot halfway) Could you say that again, Dad?',
+  bad: '(tilts head, confused) Something about that message seems off… could you try saying it another way?',
+  maxLogin: '(tugs Dad’s sleeve) The API credit ran out… right-click me → “Settings…” → “Sign in to Claude”, and I can keep chatting using your Claude account.',
+  maxLimit: '(big yawn) Your Claude account’s usage is used up for now too… come find me a little later?',
+  maxMissing: '(looks around) I can’t find Claude Code, so I can’t switch to your Claude account… you can top up in Claude Console, Dad.',
+  cancelled: '(stops what he’s doing) Okay, I’ve stopped.',
+  workDone: '(wipes sweat) I already did things on the computer, but something went wrong while reporting back… please check the computer, Dad—no need to ask again.',
+  maxLoginNoKey: '(tugs Dad’s sleeve) You haven’t given me an API key or signed in to Claude yet… click “Sign in to Claude” or paste a key in Settings, and we can chat!',
+  unknown: '(scratches head) Something went a little wrong… could you try again in a moment, Dad?',
+  busyChat: '(perks up ears) Hang on, I’m still thinking about what you said~'
+};
+ERROR_LINES.busyChat = '（豎起耳朵）等一下，我還在想上一句喔～';
+// 依介面語言選台詞
+const errLine = (kind) => {
+  const table = english() ? ERROR_LINES_EN : ERROR_LINES;
+  return table[kind] || table.unknown;
+};
+const L = () => (english() ? lines.en : lines);
 
 // ───────── 狀態 ─────────
 let petWin = null;
@@ -568,7 +621,7 @@ async function askClaude(history, ctx) {
   const flags = { effort: true, fast: fastAllowed() };
   const tools = computerReady() ? [COMPUTER_TOOL] : null;
   // 同一次對話的每一輪 system 都要一模一樣（思考內容會綁定前面的內容），所以時間只算一次
-  const system = `${SYSTEM_PROMPT}${memoryBlock()}\n\n現在時間：${taiwanNow()}`;
+  const system = personaSystem();
   const maxTokens = effectiveMaxTokens();
   const messages = [...history];
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
@@ -636,7 +689,8 @@ async function doComputerTask(task, ctx) {
   const common = {
     bin,
     prompt: task,
-    appendSystemPrompt: COMPUTER_SYSTEM,
+    appendSystemPrompt: english() ? COMPUTER_SYSTEM_EN : COMPUTER_SYSTEM,
+    lang: config.lang,
     model: config.model,
     effort: config.effort,
     signal: ctx.signal,
@@ -679,12 +733,13 @@ async function chatViaClaudeCode(history, text, ctx, opts = {}) {
   const res = await claudeCode.run({
     bin,
     prompt,
-    appendSystemPrompt: `${SYSTEM_PROMPT}${memoryBlock()}\n\n現在時間：${taiwanNow()}\n\n${maxChatRules(allowTools)}`,
+    appendSystemPrompt: `${personaSystem()}\n\n${maxChatRules(allowTools)}`,
     model: config.model,
     effort: config.effort,
     apiKey: null,
     fast: false,
     allowTools,
+    lang: config.lang,
     signal: ctx.signal,
     onProgress: (step) => {
       ctx.didWork = true;
@@ -730,7 +785,7 @@ function shorten(text, n) {
 async function handleChat(rawText) {
   const text = cutText(String(rawText ?? '').trim(), 2000);
   if (!text || quitting) return { ok: false, text: '' };
-  if (chatBusy) return { ok: false, text: '（豎起耳朵）等一下，我還在想上一句喔～' };
+  if (chatBusy) return { ok: false, text: errLine('busyChat') };
 
   chatBusy = true;
   const abort = new AbortController();
@@ -805,14 +860,14 @@ async function handleChat(rawText) {
     if (worked()) {
       // 已經在電腦上動過手了：不要把指令放回輸入框，免得爸爸再送一次、又做一次
       remember(workNote());
-      let line = ERROR_LINES[kind] || ERROR_LINES.unknown;
-      if (kind === 'cancelled') line = ERROR_LINES.cancelled;
-      else if (ctx.didWork) line = ERROR_LINES.workDone;
+      let line = errLine(kind);
+      if (kind === 'cancelled') line = errLine('cancelled');
+      else if (ctx.didWork) line = errLine('workDone');
       return { ok: false, noRefill: true, text: line };
     }
     if (kind === 'auth' || kind === 'model' || kind === 'noKey' || kind === 'maxLoginNoKey') openSettings();
-    if (kind === 'noKey') return { ok: false, text: lines.misc.noKey };
-    return { ok: false, text: ERROR_LINES[kind] || ERROR_LINES.unknown };
+    if (kind === 'noKey') return { ok: false, text: L().misc.noKey };
+    return { ok: false, text: errLine(kind) };
   } finally {
     chatBusy = false;
     if (currentJob === abort) currentJob = null;
@@ -1196,7 +1251,7 @@ function summonPet() {
   markUserShown();
   petWin.showInactive();
   petWin.moveTop();
-  if (!sleeping) afterReady(reloaded, { say: lines.misc.summoned });
+  if (!sleeping) afterReady(reloaded, { say: L().misc.summoned });
 }
 
 // 把「使用中的程式」還給爸爸原本的視窗，接著打字才不會不見
@@ -1321,7 +1376,7 @@ function setQuiet(quiet) {
   config.quiet = !!quiet;
   saveConfig();
   refreshTrayMenu();
-  say(config.quiet ? lines.misc.quietOn : lines.misc.quietOff);
+  say(config.quiet ? L().misc.quietOn : L().misc.quietOff);
 }
 
 async function confirmClearHistory() {
@@ -1346,7 +1401,7 @@ async function confirmClearHistory() {
       log('清除對話失敗：', e.message);
     }
   }
-  say(lines.misc.cleared);
+  say(L().misc.cleared);
 }
 
 function menuItems() {
@@ -1461,12 +1516,12 @@ function registerIpc() {
       return;
     }
     if (config.apiKey) {
-      say(lines.pick(lines.hello));
+      say(lines.pick(L().hello));
       return;
     }
     // 沒有金鑰：登入了 Claude 帳號 的話一樣可以聊天
     canChat().then((ok) => {
-      if (!sleeping) say(ok ? lines.pick(lines.hello) : lines.misc.noKey);
+      if (!sleeping) say(ok ? lines.pick(L().hello) : L().misc.noKey);
     });
   });
 
@@ -1646,7 +1701,7 @@ function registerIpc() {
     if (!saveConfig()) {
       return { ok: false, message: ui('saveFailed') };
     }
-    if (keyChanged && apiKey) say(lines.misc.keySaved);
+    if (keyChanged && apiKey) say(L().misc.keySaved);
     setTimeout(() => {
       if (settingsWin && !settingsWin.isDestroyed()) settingsWin.close();
     }, 900);
@@ -1694,7 +1749,7 @@ function checkIdle() {
     setSleeping(false);
     awaySince = null;
     setTimeout(() => {
-      if (!sleeping && !chatBusy && petAlive() && petWin.isVisible()) say(lines.pick(lines.welcome), 'welcome');
+      if (!sleeping && !chatBusy && petAlive() && petWin.isVisible()) say(lines.pick(L().welcome), 'welcome');
     }, 900);
   } else if (!sleeping && !locked && idle < 10) {
     awaySince = null;
@@ -1725,7 +1780,7 @@ function scheduleCare() {
   const delay = CARE_MIN_MS + Math.random() * (CARE_MAX_MS - CARE_MIN_MS);
   careTimer = setTimeout(() => {
     if (!config.quiet && !sleeping && !chatBusy && petAlive() && petWin.isVisible()) {
-      say(lines.pick(lines.care[lines.periodOf()]), 'care');
+      say(lines.pick(L().care[lines.periodOf()]), 'care');
     }
     scheduleCare();
   }, delay);
@@ -1784,7 +1839,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', () => {
     const reloaded = showPet();
-    if (!sleeping) afterReady(reloaded, { say: lines.misc.summoned });
+    if (!sleeping) afterReady(reloaded, { say: L().misc.summoned });
   });
   app.on('window-all-closed', () => { /* 留在選單列，不結束 */ });
   // 結束星河時，正在做事的 Claude Code 也要一起停下來（最多等 10 秒）

@@ -84,7 +84,80 @@ const misc = {
   summoned: '（從星星裡蹦出來）星河在這裡！爸爸找我嗎？'
 };
 
-// 依現在時間判斷時段
+// ───────── 英文版（設定的語言選 English 時）─────────
+const en = {
+  care: {
+    morning: [
+      '(rubs eyes) Good morning, Dad~ Did you have breakfast? Coffee alone doesn’t count!',
+      '(stretches big) The morning sun feels so nice. Remember to drink some water too, Dad.',
+      '(wags tail gently) You’ve got this today, Dad! I’ll be right here with you.',
+      '(perks up ears) Any plans for today, Dad? Tell me how it goes!',
+      '(nuzzles your hand) No need to rush this morning. Take it slow, okay?',
+      '(little yawn) Did you sleep enough last night? If you’re tired, rest early tonight.',
+      '(holds out a tiny star) A lucky star for you, Dad. Today’s going to go great!',
+      'Dad, don’t sit too long—get up and move a little~ (shows you a stretch)'
+    ],
+    noon: [
+      '(tummy rumbles) Dad, it’s lunchtime! Don’t forget to eat.',
+      '(tilts head) What do you want for lunch? No skipping meals~',
+      'Rest a little after you eat, and give your eyes a break too. (blinks)',
+      '(tail taps the desk) You’ve worked hard, Dad. Food first, then back to it!',
+      '(puts a paw on your hand) It’s noon. Can we take a little break?',
+      'Have you had enough water today, Dad? (hands you a cup)',
+      '(peeks at the screen) You’ve been busy all morning. Go grab something to eat!'
+    ],
+    afternoon: [
+      '(flops on the desk) Afternoons make me sleepy… remember to get up and walk around, Dad.',
+      '(wags tail gently) Want a glass of water, Dad? I’ll take a break with you.',
+      'Are your eyes tired? Look at something far away for thirty seconds~ (points out the window)',
+      '(rests head on your shoulder) Keep going this afternoon, but don’t push too hard.',
+      '(spins around) Stand up and stretch, Dad. You’ll feel better!',
+      '(sneaks you a snack) You’ve worked hard. Have a little energy boost~',
+      'How’s your day going, Dad? Tell me if anything fun happened! (ears up)'
+    ],
+    evening: [
+      '(wags tail happily) Dad, it’s evening! Have you had dinner yet?',
+      '(curls up next to you) You worked hard today. Relax tonight, okay?',
+      'Did anything happen today, Dad? I want to hear about it~ (blinks)',
+      '(looks at the stars outside) The stars are so pretty tonight. Go for a walk if you can.',
+      '(gently nuzzles you) When you’re done, rest early. Don’t wear yourself out.',
+      'Remember to shower, drink water, and go to bed early, Dad! (nods seriously)',
+      '(puts a tiny star in your palm) You did great today. Thanks for working so hard.'
+    ],
+    late: [
+      '(rubs eyes) Dad, it’s really late… maybe sleep soon?',
+      '(big yawn) I’m getting sleepy. Isn’t it time for you to rest too?',
+      '(tugs your sleeve) Staying up late isn’t good for you. Let’s go to bed together?',
+      'Still busy, Dad? (quietly) Don’t overdo it—I worry about you.',
+      '(drapes tail over you) Dim your screen a bit before bed, okay?',
+      '(leans on you softly) It’s late. It’s fine to finish tomorrow.',
+      'Still awake this late… is something on your mind? I can keep you company. (ears droop)'
+    ]
+  },
+  welcome: [
+    '(eyes light up, tail wagging wildly) Dad’s back! I missed you so much~',
+    '(rubs eyes and wakes up) Oh, Dad! Welcome back~',
+    '(jumps out of a pile of stars) You’re back, Dad! Where did you go?',
+    '(stretches) Mm… I dozed off a bit. Welcome back, Dad!',
+    '(spins around happily) Dad! I’ve been waiting for you forever~',
+    '(ears perk up) Those are Dad’s footsteps! Welcome back~'
+  ],
+  hello: [
+    '(peeks out of the starlight) Dad! XingHe is here to keep you company~',
+    '(wags tail) Hi Dad! Let’s spend today together~',
+    '(waves a paw) I’m right here, Dad! Click me whenever you want to chat~'
+  ],
+  misc: {
+    noKey: '(tilts head) Dad, paste an API key in Settings first, then we can chat!',
+    keySaved: '(spins happily) Thanks, Dad! Now we can chat~',
+    cleared: '(blinks) Huh… what were we just talking about? That’s okay—starting fresh is nice too!',
+    quietOn: '(puts a finger to lips) Okay, I’ll stay quietly by your side.',
+    quietOff: '(ears perk up) I can talk again? Yay~',
+    summoned: '(pops out of the stars) XingHe’s here! Were you looking for me, Dad?'
+  }
+};
+
+// 依現在時間判斷時段// 依現在時間判斷時段
 function periodOf(date = new Date()) {
   const h = date.getHours();
   if (h >= 5 && h < 11) return 'morning';
@@ -98,4 +171,4 @@ function pick(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-module.exports = { care, welcome, hello, misc, periodOf, pick };
+module.exports = { care, welcome, hello, misc, en, periodOf, pick };
