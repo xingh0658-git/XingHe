@@ -60,7 +60,7 @@
     speedNote.classList.remove('warn');
     speedNote.textContent = fastOk
       ? (speed === 'fast' ? '快速：回覆比較快，但 API 費用是標準的 2 倍。' : '快速模式回覆比較快，但 API 費用是標準的 2 倍。')
-      : '快速模式只有 Opus 5.5 才能用。';
+      : '快速模式只有 Opus 5.5 才能用（Fable 5.1、Sonnet、Haiku 目前都還不支援）。';
   }
 
   // 大小：50% ~ 200%，拖動時星河馬上跟著變（按儲存才會記住）
