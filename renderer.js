@@ -536,7 +536,7 @@
   // ⌘V：剪貼簿裡有圖片（截圖、網頁上拷貝的圖片、Finder 拷貝的圖片檔）就附上圖片，一般文字照常貼上
   input.addEventListener('paste', async (e) => {
     const types = Array.from((e.clipboardData && e.clipboardData.types) || []);
-    if (!types.includes('Files') && !types.some((t) => t.startsWith('image/'))) return;
+    if (!types.includes('Files') && !types.includes('text/uri-list') && !types.some((t) => t.startsWith('image/'))) return;
     e.preventDefault();
     let res = null;
     try {

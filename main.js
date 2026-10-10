@@ -506,20 +506,20 @@ async function readImageFile(file) {
   }
 }
 
-// 剪貼簿裡的檔案（在 Finder 按「拷貝」的檔案）
-function clipboardFiles() {
+// 剪貼簿裡的檔案（在 Finder 按「拷貝」的檔案會變成 file:// 網址）
+// Electron 44 的剪貼簿是非同步的：clipboard.read() 回傳 ClipboardItem，用 getType() 拿 Blob
+async function clipboardFiles(items) {
   const files = [];
-  try {
-    const plist = clipboard.readBuffer('NSFilenamesPboardType').toString('utf8');
-    for (const m of plist.matchAll(/<string>([^<]+)<\/string>/g)) {
-      files.push(m[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'"));
+  for (const item of items) {
+    if (!item.types.includes('text/uri-list')) continue;
+    const list = await (await item.getType('text/uri-list')).text();
+    for (const line of list.split(/[\r\n\0]+/)) {
+      const url = line.trim();
+      if (!url.startsWith('file://')) continue;
+      try {
+        files.push(fileURLToPath(url));
+      } catch { /* 忽略 */ }
     }
-  } catch { /* 忽略 */ }
-  if (!files.length) {
-    try {
-      const url = clipboard.read('public.file-url');
-      if (url && url.startsWith('file://')) files.push(fileURLToPath(url));
-    } catch { /* 忽略 */ }
   }
   return files;
 }
@@ -533,16 +533,20 @@ async function readImageFiles(files) {
 
 // 貼上：拷貝的圖片檔 → 圖片；有文字就貼文字（只有一個網址而且有圖片時，當作拷貝的圖片）→ 圖片
 async function readClipboardForPaste() {
-  const files = clipboardFiles();
+  const items = await clipboard.read();
+  const text = String((await clipboard.readText()) || '');
+  const files = await clipboardFiles(items);
   if (files.length) {
     const res = await readImageFiles(files);
-    return res.total ? res : { text: clipboard.readText() };
+    return res.total ? res : { text };
   }
-  const text = clipboard.readText();
-  const img = clipboard.readImage();
+  const item = items.find((it) => it.types.includes('image/png'));
+  const png = item ? await item.getType('image/png') : null;
   const onlyUrl = /^\s*https?:\/\/\S+\s*$/.test(text);
-  if (text.trim() && !(onlyUrl && !img.isEmpty())) return { text };
-  return img.isEmpty() ? { text } : { images: [{ type: 'image/png', bytes: img.toPNG() }], total: 1 };
+  if (text.trim() && !(onlyUrl && png)) return { text };
+  if (!png) return { text };
+  if (png.size > PICK_MAX_BYTES) return { images: [], total: 1 };   // 太大了：星河會說打不開
+  return { images: [{ type: 'image/png', bytes: Buffer.from(await png.arrayBuffer()) }], total: 1 };
 }
 
 // 只送最近的對話（還沒整理成記憶的部分），而且第一則必須是 user
