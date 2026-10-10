@@ -2,7 +2,7 @@
 <html lang="zh-Hant-TW">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'none'">
   <title>星河</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -20,7 +20,6 @@
     <!-- 星河本體 -->
     <div id="pet">
       <div class="halo"></div>
-      <div class="ground"></div>
       <div id="sparkles"></div>
       <div class="scene">
         <div id="card" class="interactive">
@@ -41,6 +40,10 @@
 
     <!-- 聊天輸入框 -->
     <div id="chat" class="interactive">
+      <button id="attach" type="button" title="傳圖片給星河">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.7" fill="currentColor"/><path d="M4.5 17.5l5-5 3.5 3.5 2.5-2.5 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      </button>
+      <div id="thumbs"></div>
       <input id="chat-input" type="text" maxlength="500" autocomplete="off" spellcheck="false">
       <button id="send" type="button" title="送出">✦</button>
     </div>

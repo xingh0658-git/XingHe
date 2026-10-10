@@ -13,7 +13,6 @@
   const rimSpin = card.querySelector('.rim i');
   const scene = $('.scene');
   const halo = $('.halo');
-  const ground = $('.ground');
   const sparkles = $('#sparkles');
   const bubble = $('#bubble');
   const bubbleScroll = $('#bubble-scroll');
@@ -25,6 +24,8 @@
   const bubbleArea = $('#bubble-area');
   const input = $('#chat-input');
   const sendBtn = $('#send');
+  const attachBtn = $('#attach');
+  const thumbs = $('#thumbs');
 
   const MAX_TILT = 20;          // 最多傾斜 20 度
   const SPIN_MS = 900;          // 轉一圈的時間
@@ -40,7 +41,25 @@
     zh: { task: '（捲起袖子）正在幫爸爸：', busy: '（捲起袖子）星河在忙喔…' },
     en: { task: '(rolls up sleeves) Helping Dad: ', busy: '(rolls up sleeves) XingHe is busy…' }
   };
+  // 給星河看圖片
+  const MAX_IMAGES = 4;                     // 一次最多 4 張（要跟 main.js 一致）
+  const IMG_MAX_EDGE = 1920;                // 長邊最多 1920px，再大星河也看不出差別，只是比較貴
+  const IMG_MAX_PIXELS = 1920 * 1080;
+  const IMG_MAX_BYTES = 3.5 * 1024 * 1024;  // 轉好的圖片最大 3.5MB
+  const IMAGE_LINES = {
+    zh: {
+      tooMany: '（伸出四根爪子）一次最多給星河看 4 張圖片喔～',
+      bad: '（歪著頭）這張圖星河打不開耶…換一張試試看好嗎？',
+      attach: '傳圖片給星河', remove: '拿掉這張圖片'
+    },
+    en: {
+      tooMany: '(holds up four claws) Up to 4 pictures at a time, okay?',
+      bad: '(tilts head) I couldn’t open that picture… could you try another one?',
+      attach: 'Send XingHe a picture', remove: 'Remove this picture'
+    }
+  };
   let uiLang = 'zh';
+  const imageText = () => IMAGE_LINES[uiLang] || IMAGE_LINES.zh;
   const fallbackReply = () => FALLBACK[uiLang] || FALLBACK.zh;
   // 打字時遇到這些標點會停久一點：，。！？…、～ 和半形的 , . ! ? ~
   const PUNCT = /[，。！？…、～\x2C\x2E\x21\x3F\x7E]/;
@@ -148,7 +167,7 @@
 
     const cardTop = cy - HALF_CARD * s;
     const cardBottom = cy + HALF_CARD * s;
-    const gapBelow = 18 + 30 * s;   // 腳下的光影
+    const gapBelow = 18 + 30 * s;   // 卡片上下漂浮、跳動的空間
     // 輸入框：下面放得下就放下面，不然放上面
     const roomBelow = safe.bottom - cardBottom;
     const roomAbove = cardTop - safe.top;
@@ -199,10 +218,12 @@
 
   new ResizeObserver(() => positionBubble()).observe(bubble);
 
-  // 介面語言：送出按鈕的提示文字
+  // 介面語言：按鈕的提示文字
   api.onLang((lang) => {
     uiLang = lang === 'en' ? 'en' : 'zh';
     sendBtn.title = uiLang === 'en' ? 'Send' : '送出';
+    attachBtn.title = imageText().attach;
+    for (const el of thumbs.children) el.title = imageText().remove;
   });
   api.onLayout(applyLayout);
 
@@ -247,6 +268,8 @@
     if (p.x !== state.mouse.x || p.y !== state.mouse.y) state.lastMove = now;
     state.mouse.x = p.x;
     state.mouse.y = p.y;
+    // 從 Finder 拖圖片過來時收不到滑鼠移動：游標到了聊天框上就要接收（才能放下圖片）
+    if (state.chatOpen) updateHover(p.x, p.y);
   });
 
   // ───────── 拖曳與點擊 ─────────
@@ -361,7 +384,7 @@
 
   // 點到別的地方時，如果輸入框是空的就收起來（剛打開的 1 秒內先等一下再判斷）
   function maybeCloseOnBlur() {
-    if (!state.chatOpen || state.waiting || input.value.trim() || document.hasFocus()) return;
+    if (!state.chatOpen || state.waiting || input.value.trim() || hasImages() || picking || document.hasFocus()) return;
     const elapsed = performance.now() - state.chatOpenedAt;
     if (elapsed > 1000) closeChat();
     else setTimeout(maybeCloseOnBlur, 1000 - elapsed + 50);
@@ -374,26 +397,178 @@
 
   async function sendMessage() {
     const text = input.value.trim();
-    if (!text) return;
-    if (state.waiting) {
+    if (!text && !hasImages()) return;
+    // 圖片還在處理，或正在等回覆
+    if (state.waiting || pendingImages > 0) {
       shake();
       return;
     }
     input.value = '';
+    const sent = attachments.splice(0);
+    for (const a of sent) a.el.remove();
     state.waiting = true;
     showThinking();
     let res = null;
     try {
-      res = await api.chat(text);
+      const images = await Promise.all(sent.map(async (a) => ({ type: a.blob.type, bytes: new Uint8Array(await a.blob.arrayBuffer()) })));
+      res = await api.chat(text, images);
     } catch {
       res = null;
     }
     state.waiting = false;
-    // 沒有成功的話，把剛剛打的字放回去，不用整句重打
-    if (!(res && res.ok) && !(res && res.noRefill) && !input.value.trim()) input.value = text;
+    // 沒有成功的話，把剛剛打的字和圖片放回去，不用重來
+    const refill = !(res && res.ok) && !(res && res.noRefill);
+    if (refill && !input.value.trim()) input.value = text;
+    if (refill && !hasImages()) {
+      for (const a of sent) {
+        attachments.push(a);
+        thumbs.appendChild(a.el);
+      }
+    } else {
+      for (const a of sent) URL.revokeObjectURL(a.url);
+    }
     speak(res && res.text ? res.text : fallbackReply(), 'reply');
     maybeCloseOnBlur();
   }
+
+  // ───────── 給星河看圖片：按圖片按鈕選檔案、⌘V 貼上、把圖片拖到聊天框 ─────────
+  const attachments = [];   // { blob, url, el }
+  let pendingImages = 0;    // 還在處理的圖片
+  let picking = false;      // 正在選檔案（聊天框不要收起來）
+  const hasImages = () => attachments.length > 0 || pendingImages > 0;
+  // 星河在想回覆的時候，等回覆說完再講
+  const sayLater = (text) => {
+    if (state.waiting) state.queuedSay = { text, kind: 'system' };
+    else speak(text, 'system');
+  };
+
+  // 縮小成星河看得清楚、又不會太貴的大小
+  async function prepareImage(blob) {
+    const bmp = await createImageBitmap(blob);
+    try {
+      const k = Math.min(1, IMG_MAX_EDGE / Math.max(bmp.width, bmp.height), Math.sqrt(IMG_MAX_PIXELS / (bmp.width * bmp.height)));
+      const w = Math.max(1, Math.round(bmp.width * k));
+      const h = Math.max(1, Math.round(bmp.height * k));
+      const canvas = new OffscreenCanvas(w, h);
+      const g = canvas.getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(bmp, 0, 0, w, h);
+      for (const quality of [0.9, 0.75, 0.6]) {
+        const out = await canvas.convertToBlob({ type: 'image/webp', quality });
+        if (out.size <= IMG_MAX_BYTES) return out;
+      }
+      return null;
+    } finally {
+      bmp.close();
+    }
+  }
+
+  function addThumb(blob) {
+    const url = URL.createObjectURL(blob);
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'thumb';
+    el.title = imageText().remove;
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = '';
+    el.appendChild(img);
+    const item = { blob, url, el };
+    el.addEventListener('mousedown', (e) => e.preventDefault());   // 不搶走輸入框的焦點
+    el.addEventListener('click', () => {
+      const i = attachments.indexOf(item);
+      if (i >= 0) attachments.splice(i, 1);
+      el.remove();
+      URL.revokeObjectURL(url);
+      input.focus();
+    });
+    attachments.push(item);
+    thumbs.appendChild(el);
+  }
+
+  // list：Blob 或 { type, bytes }；total = 爸爸總共給了幾張（主程式最多只讀 4 張，讀不了的不在 list 裡）
+  async function addImages(list, total = 0) {
+    const items = Array.from(list || []);
+    total = Math.max(total, items.length);
+    if (!total) return;
+    if (!state.chatOpen) openChat();
+    const room = Math.max(0, MAX_IMAGES - attachments.length - pendingImages);
+    if (total > room) sayLater(imageText().tooMany);
+    const take = items.slice(0, room);
+    pendingImages += take.length;
+    let failed = Math.min(total, MAX_IMAGES) > items.length && items.length < room;   // 有的檔案主程式就打不開
+    if (!take.length) {
+      if (failed) sayLater(imageText().bad);
+      return;
+    }
+    await Promise.all(take.map(async (item) => {
+      try {
+        const blob = item instanceof Blob ? item : new Blob([item.bytes], { type: item.type || '' });
+        const out = await prepareImage(blob);
+        if (out) addThumb(out);
+        else failed = true;
+      } catch {
+        failed = true;
+      } finally {
+        pendingImages -= 1;
+      }
+    }));
+    if (failed) sayLater(imageText().bad);
+    input.focus();
+  }
+
+  attachBtn.addEventListener('mousedown', (e) => e.preventDefault());
+  attachBtn.addEventListener('click', async () => {
+    if (picking) return;
+    picking = true;
+    let picked = null;
+    try {
+      picked = await api.pickImages();
+    } catch {
+      picked = null;
+    }
+    picking = false;
+    input.focus();
+    if (picked && picked.total) addImages(picked.images, picked.total);
+    else maybeCloseOnBlur();
+  });
+
+  // ⌘V：剪貼簿裡有圖片（截圖、網頁上拷貝的圖片、Finder 拷貝的圖片檔）就附上圖片，一般文字照常貼上
+  input.addEventListener('paste', async (e) => {
+    const types = Array.from((e.clipboardData && e.clipboardData.types) || []);
+    if (!types.includes('Files') && !types.some((t) => t.startsWith('image/'))) return;
+    e.preventDefault();
+    let res = null;
+    try {
+      res = await api.pasteImage();
+    } catch {
+      res = null;
+    }
+    if (res && res.total) {
+      addImages(res.images, res.total);
+    } else if (res && res.text) {
+      // 不是圖片：照一般的方式貼上文字（不超過輸入框的長度上限）
+      const start = input.selectionStart ?? input.value.length;
+      const end = input.selectionEnd ?? start;
+      const room = input.maxLength - (input.value.length - (end - start));
+      input.setRangeText(Array.from(res.text).slice(0, Math.max(0, room)).join(''), start, end, 'end');
+    }
+  });
+
+  // 把圖片拖到聊天框或星河身上
+  const draggingFiles = (e) => Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes('Files');
+  document.addEventListener('dragover', (e) => {
+    if (!draggingFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = e.target.closest && e.target.closest('#chat, #card') ? 'copy' : 'none';
+  });
+  document.addEventListener('drop', (e) => {
+    if (!draggingFiles(e)) return;
+    e.preventDefault();
+    if (!(e.target.closest && e.target.closest('#chat, #card'))) return;
+    const files = Array.from(e.dataTransfer.files || []).filter((f) => f.type.startsWith('image/'));
+    if (files.length) addImages(files);
+  });
 
   // ───────── 對話泡泡 ─────────
   let typer = null;
@@ -609,7 +784,7 @@
     document.body.classList.toggle('sleeping', value);
     if (value) {
       if (!state.waiting) hideBubble(true);
-      if (state.chatOpen && !input.value.trim() && !state.waiting) closeChat();
+      if (state.chatOpen && !input.value.trim() && !hasImages() && !state.waiting) closeChat();
     } else {
       state.hopStart = performance.now();
     }
@@ -729,12 +904,10 @@
       e.el.style.transform = `translate3d(${(e.drift * rise).toFixed(1)}px, ${(-120 * rise).toFixed(1)}px, 0) scale(${(0.6 + 0.5 * rise).toFixed(3)})`;
     }
 
-    // 光暈呼吸，和影子一起跟著漂浮
+    // 光暈呼吸，跟著漂浮
     const y = floatY + hop;
     halo.style.opacity = (0.8 + 0.2 * Math.cos((t * 2 * Math.PI) / 4)).toFixed(3);
     halo.style.transform = `translateY(${(y * 0.5).toFixed(2)}px)`;
-    ground.style.transform = `scale(${clamp(1 + y * 0.015, 0.6, 1.2).toFixed(3)})`;
-    ground.style.opacity = clamp(0.85 + y * 0.03, 0.35, 1).toFixed(3);
   }
 
   // ───────── 開始 ─────────

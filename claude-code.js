@@ -179,7 +179,7 @@ function describeTool(block, lang = 'zh') {
  */
 function run(opts) {
   const {
-    bin, prompt, appendSystemPrompt, model, effort, fast, apiKey,
+    bin, prompt, appendSystemPrompt, model, effort, fast, apiKey, images = [],
     allowTools = true, onProgress, signal, timeoutMs = RUN_TIMEOUT_MS, lang = 'zh'
   } = opts;
   return new Promise((resolve) => {
@@ -204,6 +204,8 @@ function run(opts) {
     if (effort) args.push('--effort', effort);
     if (appendSystemPrompt) args.push('--append-system-prompt', appendSystemPrompt);
     if (fast) args.push('--settings', JSON.stringify({ fastMode: true }));
+    // 有圖片的話，用 JSON 格式把圖片和文字一起送進去
+    if (images.length) args.push('--input-format', 'stream-json');
 
     let child;
     try {
@@ -218,7 +220,12 @@ function run(opts) {
     live.add(child);
     child.on('close', () => live.delete(child));
     child.stdin.on('error', () => { /* 已經結束 */ });
-    child.stdin.end(String(prompt));
+    if (images.length) {
+      const message = { role: 'user', content: [...images, { type: 'text', text: String(prompt) }] };
+      child.stdin.end(`${JSON.stringify({ type: 'user', message })}\n`);
+    } else {
+      child.stdin.end(String(prompt));
+    }
 
     let finished = false;
     let result = null;

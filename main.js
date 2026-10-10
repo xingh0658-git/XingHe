@@ -9,6 +9,8 @@ const {
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
+const crypto = require('crypto');
+const { fileURLToPath } = require('url');
 const lines = require('./lines');
 const claudeCode = require('./claude-code');
 
@@ -73,10 +75,10 @@ const MODELS = [
 const DEFAULT_MODEL = MODELS[0].id;
 
 // 星河視窗的大小（要跟 style.css、renderer.js 一致）：大小 1 倍時是 320×460，
-// 卡片 170px，上面 190px 留給泡泡，下面留給腳下的光影和輸入框
+// 卡片 170px，上面 190px 留給泡泡，下面留給輸入框
 const CARD = 170;
 const ROOM_ABOVE = 190;
-const ROOM_BELOW = 70;                    // 再加上腳下光影 30×大小
+const ROOM_BELOW = 70;                    // 再加上卡片漂浮的空間 30×大小
 const SCALE_MIN = 0.5;                    // 星河最小 0.5 倍、最大 2 倍
 const SCALE_MAX = 2;
 const CLICK_SLOP = 4;                     // 移動小於 4px 算點擊
@@ -86,6 +88,15 @@ const STORE_LIMIT = 400;                  // history.json 最多保留的則數�
 const COMPACT_AT = 60;                    // 超過 60 則，就把比較舊的整理成重點記憶
 const MEMORY_MAX_CHARS = 3000;            // 整理好的記憶最多幾個字
 const MEMORY_MODEL = 'claude-haiku-5-5';  // 整理記憶用的模型（便宜又快）
+const MAX_IMAGES = 4;                     // 一次最多給星河看 4 張圖片
+const IMAGE_MAX_BYTES = 3840 * 1024;      // 每張圖片最大約 3.75MB（轉成文字後不超過 API 的 5MB）
+const IMAGE_SEND_RECENT = 6;              // 最近 6 則對話裡的圖片真的送給星河看，再舊的只說「傳過圖片」
+const PICK_MAX_BYTES = 60 * 1024 * 1024;  // 選圖片時，原始檔最大 60MB
+const IMAGE_EXT = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif' };
+const IMAGE_MEDIA = { webp: 'image/webp', jpg: 'image/jpeg', png: 'image/png', gif: 'image/gif' };
+// 選檔案時可以選的格式；畫面能直接打開的照原樣讀，HEIC、TIFF 這類先請 macOS 轉成圖片
+const PICK_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'avif', 'heic', 'heif', 'tif', 'tiff'];
+const DECODABLE = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', avif: 'image/avif' };
 // 介面的語言（設定視窗、選單、對話框）。星河說的話還是國語（角色設定）
 const LANGS = ['zh', 'en'];
 const UI_TEXT = {
@@ -96,6 +107,7 @@ const UI_TEXT = {
     clearTitle: '清除對話記憶', clearMessage: '要清除星河的對話記憶嗎？',
     clearDetail: '清除之後，星河會忘記你們之前聊過的所有內容（包括整理好的記憶），而且沒辦法復原。',
     cancel: '取消', clearButton: '清除',
+    pickTitle: '選擇要給星河看的圖片', pickButton: '給星河看', pickFilter: '圖片',
     needKey: '請先貼上 API 金鑰喔。',
     badKey: '金鑰裡好像混進了看不見或特殊的字，請到 Claude Console 重新複製，再貼上一次喔。',
     saveFailed: '金鑰存不進電腦裡…請確認磁碟空間後再按一次儲存。（這次開著的時候還是可以聊天）'
@@ -107,6 +119,7 @@ const UI_TEXT = {
     clearTitle: 'Clear Chat Memory', clearMessage: 'Clear XingHe\'s chat memory?',
     clearDetail: 'XingHe will forget everything you have talked about (including the saved summary). This can\'t be undone.',
     cancel: 'Cancel', clearButton: 'Clear',
+    pickTitle: 'Choose pictures to show XingHe', pickButton: 'Show XingHe', pickFilter: 'Images',
     needKey: 'Please paste an API key first.',
     badKey: 'The key contains invisible or special characters. Please copy it again from Claude Console and paste it.',
     saveFailed: 'Couldn\'t save the key to this Mac… please check the disk space and click Save again. (Chat still works while XingHe is open.)'
@@ -201,6 +214,7 @@ const ERROR_LINES = {
   empty: '（張開嘴又闔上）嗯…我一時不知道要說什麼，爸爸再跟我說一次好嗎？',
   cutoff: '（想得太入神，話說到一半就忘了）爸爸可以再跟我說一次嗎？',
   bad: '（困惑地歪頭）訊息好像哪裡怪怪的…爸爸可以換個說法再試一次嗎？',
+  image: '（瞇起眼睛）這張圖片星河看不太清楚…爸爸換一張試試看好嗎？',
   maxLogin: '（拉拉爸爸的衣角）API 額度用完了…爸爸對我按右鍵 →「設定…」→「登入 Claude」，登入之後我就能用 Claude 帳號的額度繼續陪你喔。',
   maxLimit: '（打了個大哈欠）Claude 帳號這段時間的額度也用完了…等一下再找我好不好？',
   maxMissing: '（四處張望）我找不到 Claude Code，沒辦法改用 Claude 帳號…爸爸可以到 Claude Console 儲值喔。',
@@ -225,6 +239,7 @@ const ERROR_LINES_EN = {
   empty: '(opens mouth, then closes it) Hmm… I don’t know what to say right now. Could you tell me again, Dad?',
   cutoff: '(got so lost in thought I forgot halfway) Could you say that again, Dad?',
   bad: '(tilts head, confused) Something about that message seems off… could you try saying it another way?',
+  image: '(squints) I can’t quite see this picture… could you try another one, Dad?',
   maxLogin: '(tugs Dad’s sleeve) The API credit ran out… right-click me → “Settings…” → “Sign in to Claude”, and I can keep chatting using your Claude account.',
   maxLimit: '(big yawn) Your Claude account’s usage is used up for now too… come find me a little later?',
   maxMissing: '(looks around) I can’t find Claude Code, so I can’t switch to your Claude account… you can top up in Claude Console, Dad.',
@@ -282,6 +297,7 @@ const userDir = () => app.getPath('userData');
 const configPath = () => path.join(userDir(), 'config.json');
 const historyPath = () => path.join(userDir(), 'history.json');
 const memoryPath = () => path.join(userDir(), 'memory.json');
+const imagesDir = () => path.join(userDir(), 'images');   // 爸爸給星河看的圖片
 
 function log(...args) {
   console.log(new Date().toLocaleString('zh-TW', { hour12: false }), ...args);
@@ -373,7 +389,7 @@ function loadHistory() {
   const list = readJSON(historyPath(), []);
   if (!Array.isArray(list)) return [];
   return list.filter((m) => m && (m.role === 'user' || m.role === 'assistant') &&
-    typeof m.content === 'string' && m.content.trim());
+    typeof m.content === 'string' && (m.content.trim() || imagesOf(m).length));
 }
 
 function saveHistory(list) {
@@ -391,11 +407,176 @@ function memoryBlock() {
   return summary ? `\n\n【星河記得的事（以前和爸爸聊過的重點）】\n${summary}` : '';
 }
 
+// ───────── 圖片：爸爸給星河看的圖片存在 images 資料夾（只有自己能讀寫）─────────
+const SAFE_IMAGE_NAME = /^[\w-]+\.(webp|jpg|png|gif)$/;
+
+// 這則對話附的圖片檔名
+function imagesOf(m) {
+  if (!m || m.role !== 'user' || !Array.isArray(m.images)) return [];
+  return m.images.filter((n) => typeof n === 'string' && SAFE_IMAGE_NAME.test(n));
+}
+
+// 看檔案開頭判斷真正的格式（不相信副檔名或畫面說的）
+function sniffImageType(buf) {
+  if (buf.length > 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  if (buf.length > 8 && buf[0] === 0x89 && buf.toString('latin1', 1, 4) === 'PNG') return 'image/png';
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length > 6 && buf.toString('latin1', 0, 4) === 'GIF8') return 'image/gif';
+  return '';
+}
+
+// 檢查畫面送來的圖片：格式、大小、張數
+function cleanImages(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const img of list.slice(0, MAX_IMAGES)) {
+    const bytes = img && img.bytes;
+    if (!(bytes instanceof Uint8Array)) continue;
+    const data = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const type = sniffImageType(data);
+    if (type && data.length <= IMAGE_MAX_BYTES) out.push({ type, data });
+  }
+  return out;
+}
+
+function saveImages(images) {
+  if (!images.length) return [];
+  fs.mkdirSync(imagesDir(), { recursive: true, mode: 0o700 });
+  fs.chmodSync(imagesDir(), 0o700);
+  return images.map((img) => {
+    const name = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}.${IMAGE_EXT[img.type]}`;
+    fs.writeFileSync(path.join(imagesDir(), name), img.data, { mode: 0o600 });
+    return name;
+  });
+}
+
+function readImageBlock(name) {
+  try {
+    const data = fs.readFileSync(path.join(imagesDir(), name));
+    const type = sniffImageType(data);
+    if (!type) return null;
+    return { type: 'image', source: { type: 'base64', media_type: type, data: data.toString('base64') } };
+  } catch {
+    return null;
+  }
+}
+
+// 看不到圖片本身的時候，用文字說「傳過圖片」
+function imageNote(n) {
+  if (english()) return n === 1 ? '(Dad sent a picture)' : `(Dad sent ${n} pictures)`;
+  return `（爸爸傳了 ${n} 張圖片）`;
+}
+
+function textWithImages(m) {
+  const n = imagesOf(m).length;
+  return n ? [m.content.trim(), imageNote(n)].filter(Boolean).join(' ') : m.content;
+}
+
+// 刪掉對話裡已經用不到的圖片（舊對話整理成記憶之後、沒送出去的）
+function pruneImages() {
+  let files;
+  try {
+    files = fs.readdirSync(imagesDir());
+  } catch {
+    return;
+  }
+  const used = new Set(loadHistory().flatMap(imagesOf));
+  const cutoff = Date.now() - 10 * 60 * 1000;   // 剛存的先留著（可能還在等回覆）
+  for (const f of files) {
+    if (used.has(f)) continue;
+    const file = path.join(imagesDir(), f);
+    try {
+      if (fs.statSync(file).mtimeMs < cutoff) fs.rmSync(file, { force: true });
+    } catch { /* 忽略 */ }
+  }
+}
+
+// 讀爸爸選的或拷貝的圖片檔（太大或不是圖片就略過）
+async function readImageFile(file) {
+  try {
+    const ext = path.extname(file).slice(1).toLowerCase();
+    if (!PICK_EXTS.includes(ext)) return null;
+    const st = fs.statSync(file);
+    if (!st.isFile() || st.size > PICK_MAX_BYTES) return null;
+    if (DECODABLE[ext]) return { type: DECODABLE[ext], bytes: fs.readFileSync(file) };
+    const img = await nativeImage.createThumbnailFromPath(file, { width: 2000, height: 2000 });
+    return img.isEmpty() ? null : { type: 'image/png', bytes: img.toPNG() };
+  } catch {
+    return null;
+  }
+}
+
+// 剪貼簿裡的檔案（在 Finder 按「拷貝」的檔案）
+function clipboardFiles() {
+  const files = [];
+  try {
+    const plist = clipboard.readBuffer('NSFilenamesPboardType').toString('utf8');
+    for (const m of plist.matchAll(/<string>([^<]+)<\/string>/g)) {
+      files.push(m[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'"));
+    }
+  } catch { /* 忽略 */ }
+  if (!files.length) {
+    try {
+      const url = clipboard.read('public.file-url');
+      if (url && url.startsWith('file://')) files.push(fileURLToPath(url));
+    } catch { /* 忽略 */ }
+  }
+  return files;
+}
+
+// 讀好幾個圖片檔（最多 4 個）；total = 爸爸總共給了幾個，畫面才知道有沒有超過或打不開
+async function readImageFiles(files) {
+  const list = files.filter((f) => PICK_EXTS.includes(path.extname(f).slice(1).toLowerCase()));
+  const images = (await Promise.all(list.slice(0, MAX_IMAGES).map(readImageFile))).filter(Boolean);
+  return { images, total: list.length };
+}
+
+// 貼上：拷貝的圖片檔 → 圖片；有文字就貼文字（只有一個網址而且有圖片時，當作拷貝的圖片）→ 圖片
+async function readClipboardForPaste() {
+  const files = clipboardFiles();
+  if (files.length) {
+    const res = await readImageFiles(files);
+    return res.total ? res : { text: clipboard.readText() };
+  }
+  const text = clipboard.readText();
+  const img = clipboard.readImage();
+  const onlyUrl = /^\s*https?:\/\/\S+\s*$/.test(text);
+  if (text.trim() && !(onlyUrl && !img.isEmpty())) return { text };
+  return img.isEmpty() ? { text } : { images: [{ type: 'image/png', bytes: img.toPNG() }], total: 1 };
+}
+
 // 只送最近的對話（還沒整理成記憶的部分），而且第一則必須是 user
-function buildMessages(list) {
+function recentHistory(list) {
   const recent = list.slice(-SEND_LIMIT);
   while (recent.length && recent[0].role !== 'user') recent.shift();
-  return recent.map((m) => ({ role: m.role, content: m.content }));
+  return recent;
+}
+
+// 給 API 的對話：最近幾則裡的圖片真的送過去（最多 4 張，越新越優先），再舊的只說「傳過圖片」
+function buildMessages(list) {
+  const recent = recentHistory(list);
+  const out = new Array(recent.length);
+  let budget = MAX_IMAGES;
+  for (let i = recent.length - 1; i >= 0; i -= 1) {
+    const m = recent[i];
+    const names = imagesOf(m);
+    const blocks = [];
+    if (i >= recent.length - IMAGE_SEND_RECENT) {
+      for (const name of names.slice(0, budget)) {
+        const block = readImageBlock(name);
+        if (block) blocks.push(block);
+      }
+    }
+    if (!blocks.length) {
+      out[i] = { role: m.role, content: textWithImages(m) };
+      continue;
+    }
+    budget -= blocks.length;
+    const missing = names.length - blocks.length;
+    const text = [m.content.trim(), missing ? imageNote(missing) : ''].filter(Boolean).join(' ');
+    out[i] = { role: m.role, content: text ? [...blocks, { type: 'text', text }] : blocks };
+  }
+  return out;
 }
 
 // 台灣格式的日期時間，例如：2026年10月9日 星期五 下午2:30
@@ -579,6 +760,7 @@ function classifyError(r) {
   if (r.status === 413) return 'tooLong';
   if (r.status === 429) return 'rate';
   if (r.status === 529 || r.status >= 500) return 'busy';
+  if (/image/.test(msg)) return 'image';
   return 'bad';
 }
 
@@ -715,20 +897,24 @@ async function doComputerTask(task, ctx) {
 
 // 用 Claude Code（Claude 帳號 的額度）聊天；需要的話也能直接動手做事
 async function chatViaClaudeCode(history, text, ctx, opts = {}) {
-  const { allowTools = config.computer, doneNote = '' } = opts;
+  const { allowTools = config.computer, doneNote = '', images = [] } = opts;
   const bin = claudeCode.findClaude();
   if (!bin) throw new XingheError('maxMissing', 0, 'Claude Code not found');
   const status = await claudeCode.authStatus(bin);
   if (ctx.signal.aborted) throw new XingheError('cancelled', 0, 'cancelled');
   if (!status.loggedIn) throw new XingheError('maxLogin', 0, 'Claude Code not logged in');
   // 對話太長的話只留最近的部分（每則最多 1500 字，全部最多 60000 字）
-  const items = buildMessages(history).map((m) => `${m.role === 'user' ? '爸爸' : '星河'}：${shorten(m.content, 1500)}`);
+  const items = recentHistory(history).map((m) => `${m.role === 'user' ? '爸爸' : '星河'}：${shorten(textWithImages(m), 1500)}`);
   let recent = '';
   for (let i = items.length - 1; i >= 0; i -= 1) {
     if (recent.length + items[i].length > 60000) break;
     recent = recent ? `${items[i]}\n${recent}` : items[i];
   }
-  const prompt = `${recent ? `這是你和爸爸最近的對話：\n${recent}\n\n` : ''}爸爸剛剛說：${shorten(text, 2000)}\n\n` +
+  // 這次附的圖片直接給 Claude Code 看
+  const imageBlocks = images.map(readImageBlock).filter(Boolean);
+  const pics = imageBlocks.length ? `（爸爸附上了 ${imageBlocks.length} 張圖片給你看，就是這則訊息裡的圖片）` : '';
+  const said = text ? `爸爸剛剛說：${shorten(text, 2000)}${pics}` : `爸爸剛剛傳了圖片給你，沒有說話。${pics}`;
+  const prompt = `${recent ? `這是你和爸爸最近的對話：\n${recent}\n\n` : ''}${said}\n\n` +
     `${doneNote ? `${doneNote}\n\n` : ''}請用星河的身分回覆爸爸。`;
   const res = await claudeCode.run({
     bin,
@@ -739,6 +925,7 @@ async function chatViaClaudeCode(history, text, ctx, opts = {}) {
     apiKey: null,
     fast: false,
     allowTools,
+    images: imageBlocks,
     lang: config.lang,
     signal: ctx.signal,
     onProgress: (step) => {
@@ -748,7 +935,7 @@ async function chatViaClaudeCode(history, text, ctx, opts = {}) {
   });
   if (allowTools && ((res.steps && res.steps.length) || res.kind === 'cancelled' || res.kind === 'timeout')) {
     if (res.kind === 'cancelled' || res.kind === 'timeout') ctx.maybeWorked = true;
-    ctx.workRuns.push({ task: shorten(text, 60), ok: res.ok, kind: res.kind, text: shorten(res.text, 600) });
+    ctx.workRuns.push({ task: shorten(text || imageNote(images.length), 60), ok: res.ok, kind: res.kind, text: shorten(res.text, 600) });
   }
   if (res.ok && res.text) return { text: res.text, complete: true };
   if (res.kind === 'cancelled') throw new XingheError('cancelled', 0, 'cancelled');
@@ -782,10 +969,20 @@ function shorten(text, n) {
   return one.length > n ? `${cutText(one, n)}…` : one;
 }
 
-async function handleChat(rawText) {
+async function handleChat(rawText, rawImages = []) {
   const text = cutText(String(rawText ?? '').trim(), 2000);
-  if (!text || quitting) return { ok: false, text: '' };
+  const images = cleanImages(rawImages);
+  if ((!text && !images.length) || quitting) return { ok: false, text: '' };
   if (chatBusy) return { ok: false, text: errLine('busyChat') };
+  // 圖片先存起來（記在對話裡，之後幾句星河還看得到）
+  let names = [];
+  try {
+    names = saveImages(images);
+  } catch (e) {
+    log('儲存圖片失敗：', e.message);
+    return { ok: false, text: errLine('image') };
+  }
+  const userMsg = names.length ? { role: 'user', content: text, images: names } : { role: 'user', content: text };
 
   chatBusy = true;
   const abort = new AbortController();
@@ -806,7 +1003,7 @@ async function handleChat(rawText) {
     const now = new Date().toISOString();
     try {
       // 重新讀一次：等回覆的時候，舊的對話可能已經整理成記憶了
-      saveHistory([...loadHistory(), { role: 'user', content: text, time: now }, { role: 'assistant', content: reply, time: now }]);
+      saveHistory([...loadHistory(), { ...userMsg, time: now }, { role: 'assistant', content: reply, time: now }]);
     } catch (e) {
       log('儲存對話失敗：', e.message);
     }
@@ -815,7 +1012,7 @@ async function handleChat(rawText) {
   // 記在對話裡：在電腦上做了哪些事、結果如何（之後才不會以為沒做、又做一次）
   const workNote = () => {
     const status = (w) => (w.ok ? '已完成' : w.kind === 'cancelled' ? '做到一半被停下來' : '沒有完成');
-    const runs = ctx.workRuns.map((w) => `${w.task}：${status(w)}`).join('；') || text;
+    const runs = ctx.workRuns.map((w) => `${w.task}：${status(w)}`).join('；') || textWithImages(userMsg);
     return `（星河剛剛在電腦上動過手：${shorten(runs, 160)}）`;
   };
   try {
@@ -825,7 +1022,7 @@ async function handleChat(rawText) {
       // 沒有 API 金鑰：有登入 Claude 帳號 的話就用 Claude 帳號，不然請爸爸到設定貼金鑰或登入 Claude
       if (!config.maxFallback) throw new XingheError('noKey');
       try {
-        result = await chatViaClaudeCode(history, text, ctx);
+        result = await chatViaClaudeCode(history, text, ctx, { images: names });
       } catch (e) {
         if (e instanceof XingheError && e.kind === 'maxMissing') throw new XingheError('noKey');
         if (e instanceof XingheError && e.kind === 'maxLogin') throw new XingheError('maxLoginNoKey');
@@ -833,7 +1030,7 @@ async function handleChat(rawText) {
       }
     } else {
       try {
-        result = await askClaude(buildMessages([...history, { role: 'user', content: text }]), ctx);
+        result = await askClaude(buildMessages([...history, userMsg]), ctx);
       } catch (e) {
         // API 額度用完：改用 Claude 帳號
         if (!(e instanceof XingheError) || e.kind !== 'credit' || !config.maxFallback) throw e;
@@ -842,11 +1039,12 @@ async function handleChat(rawText) {
           // 事情已經在電腦上做過了：Claude 帳號 只負責把結果告訴爸爸，不再動手
           const done = ctx.workRuns.map((w) => `‧${w.task}：${w.ok ? '已完成' : '沒有完成'}（${w.text}）`).join('\n');
           result = await chatViaClaudeCode(history, text, ctx, {
+            images: names,
             allowTools: false,
             doneNote: `【注意】爸爸交代的事剛剛已經在電腦上處理過了，絕對不要再做一次，只要用星河的口吻簡短告訴爸爸結果：\n${done}`
           });
         } else {
-          result = await chatViaClaudeCode(history, text, ctx);
+          result = await chatViaClaudeCode(history, text, ctx, { images: names });
         }
       }
     }
@@ -873,6 +1071,7 @@ async function handleChat(rawText) {
     if (currentJob === abort) currentJob = null;
     refreshTrayMenu();
     maybeCompactMemory();
+    pruneImages();
   }
 }
 
@@ -886,7 +1085,7 @@ const MEMORY_RULES = [
 ].join('\n');
 
 function memoryPrompt(oldSummary, chunk) {
-  const transcript = chunk.map((m) => `${m.role === 'user' ? '爸爸' : '星河'}：${shorten(m.content, 1500)}`).join('\n');
+  const transcript = chunk.map((m) => `${m.role === 'user' ? '爸爸' : '星河'}：${shorten(textWithImages(m), 1500)}`).join('\n');
   return `【目前的記憶】\n${oldSummary || '（還沒有）'}\n\n【要整理進去的舊對話】\n${transcript}\n\n請輸出合併後的新記憶。`;
 }
 
@@ -955,6 +1154,7 @@ async function maybeCompactMemory() {
     if (!same) return;
     writePrivateJSON(memoryPath(), { summary, updated: new Date().toISOString() });
     saveHistory(now.slice(chunk.length));
+    pruneImages();   // 整理掉的對話裡的圖片也一起刪掉
     compactFailedAt = 0;
     log(`把 ${chunk.length} 則舊對話整理成記憶了（${summary.length} 字）`);
   } catch (e) {
@@ -1394,9 +1594,9 @@ async function confirmClearHistory() {
   });
   if (response !== 1) return;
   historyGeneration += 1;
-  for (const file of [historyPath(), memoryPath()]) {
+  for (const file of [historyPath(), memoryPath(), imagesDir()]) {
     try {
-      fs.rmSync(file, { force: true });
+      fs.rmSync(file, { force: true, recursive: true });
     } catch (e) {
       log('清除對話失敗：', e.message);
     }
@@ -1573,13 +1773,50 @@ function registerIpc() {
     petWin.focus();
   });
 
-  ipcMain.handle('chat:send', async (event, text) => {
+  ipcMain.handle('chat:send', async (event, text, images) => {
     if (!isFrom(event, petWin)) return { ok: false, text: '' };
     const loads = petLoads;
-    const res = await handleChat(text);
+    const res = await handleChat(text, images);
     // 等回覆的時候畫面重新載入過：原本的畫面已經不在了，改用事件把回覆送給新的畫面
     if (petLoads !== loads) send('pet:reply', res);
     return res;
+  });
+
+  // 選圖片給星河看
+  ipcMain.handle('pet:pick-images', async (event) => {
+    if (!isFrom(event, petWin)) return { images: [], total: 0 };
+    focusWantedAt = Date.now();
+    app.focus({ steal: true });
+    let picked = { images: [], total: 0 };
+    try {
+      const { canceled, filePaths } = await dialog.showOpenDialog({
+        title: ui('pickTitle'),
+        buttonLabel: ui('pickButton'),
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: ui('pickFilter'), extensions: PICK_EXTS }]
+      });
+      if (!canceled) picked = await readImageFiles(filePaths);
+    } catch (e) {
+      log('選圖片失敗：', e.message);
+    }
+    // 回到聊天框繼續打字
+    focusWantedAt = Date.now();
+    if (petAlive()) {
+      app.focus({ steal: true });
+      petWin.focus();
+    }
+    return picked;
+  });
+
+  // 在聊天框按 ⌘V：剪貼簿裡的圖片或圖片檔
+  ipcMain.handle('pet:paste-image', async (event) => {
+    if (!isFrom(event, petWin)) return { text: '' };
+    try {
+      return await readClipboardForPaste();
+    } catch (e) {
+      log('貼上圖片失敗：', e.message);
+      return { text: '' };
+    }
   });
 
   // 設定視窗
@@ -1806,6 +2043,7 @@ function start() {
   startCursorFeed();
   startIdleWatch();
   scheduleCare();
+  pruneImages();
   // 螢幕拔掉或解析度改變時，確保星河還在看得到的地方（不改記住的位置）
   const keepOnScreen = () => {
     if (petAlive() && !drag) ensureOnScreen();   // 躲起來的時候也要擺好，回來才不會在奇怪的地方
