@@ -175,12 +175,14 @@ function describeTool(block, lang = 'zh') {
 
 /**
  * 執行一次 Claude Code（不會先問，完全自動）
- * 回傳 { ok, text, kind, costUsd }
+ * resume：接著某個對話繼續（fork = 另外存一份，不動到原本的對話）；cwd：在哪個資料夾做
+ * 回傳 { ok, text, kind, costUsd, sessionId }
  */
 function run(opts) {
   const {
     bin, prompt, appendSystemPrompt, model, effort, fast, apiKey, images = [],
-    allowTools = true, onProgress, signal, timeoutMs = RUN_TIMEOUT_MS, lang = 'zh'
+    allowTools = true, onProgress, signal, timeoutMs = RUN_TIMEOUT_MS, lang = 'zh',
+    cwd = os.homedir(), resume = '', fork = false
   } = opts;
   return new Promise((resolve) => {
     if (!bin) {
@@ -194,9 +196,15 @@ function run(opts) {
     const args = [
       '-p',
       '--output-format', 'stream-json',
-      '--verbose',
-      '--no-session-persistence'
+      '--verbose'
     ];
+    // 接著舊的對話做：要存下來，下次才能再接著做；平常做完就丟
+    if (resume) {
+      args.push('--resume', resume);
+      if (fork) args.push('--fork-session');
+    } else {
+      args.push('--no-session-persistence');
+    }
     // 只聊天不做事：關掉所有工具（包括 MCP 和 claude.ai 連接器），也不跳過權限確認
     if (allowTools) args.push('--dangerously-skip-permissions');
     else args.push('--tools', '', '--strict-mcp-config');
@@ -211,7 +219,7 @@ function run(opts) {
     try {
       // detached：自己一個程式群組，停下來時可以連同它開的指令一起停
       child = spawn(bin, args, {
-        cwd: os.homedir(), env: cleanEnv(apiKey, !allowTools), stdio: ['pipe', 'pipe', 'pipe'], detached: true
+        cwd, env: cleanEnv(apiKey, !allowTools), stdio: ['pipe', 'pipe', 'pipe'], detached: true
       });
     } catch (e) {
       resolve({ ok: false, kind: 'missing', text: e.message, steps: [] });
@@ -230,6 +238,7 @@ function run(opts) {
     let finished = false;
     let result = null;
     let lastText = '';
+    let sessionId = '';
     let buf = '';
     let stderr = '';
     const steps = [];   // 已經做了哪些步驟（額度用完要改用 Claude 帳號 時，避免重做）
@@ -240,7 +249,7 @@ function run(opts) {
       finished = true;
       clearTimeout(timer);
       if (signal) signal.removeEventListener('abort', onAbort);
-      resolve({ steps: [...steps], ...value });
+      resolve({ steps: [...steps], sessionId, ...value });
     };
     const stop = (kind) => {
       killTree(child, 'SIGTERM');
@@ -265,6 +274,7 @@ function run(opts) {
       } catch {
         return;
       }
+      if (typeof msg.session_id === 'string' && msg.session_id) sessionId = msg.session_id;
       if (msg.type === 'assistant' && msg.message && Array.isArray(msg.message.content)) {
         for (const block of msg.message.content) {
           if (block.type === 'tool_use' && !finished) {

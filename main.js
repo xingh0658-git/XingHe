@@ -92,6 +92,7 @@ const MAX_IMAGES = 4;                     // 一次最多給星河看 4 張圖�
 const IMAGE_MAX_BYTES = 3840 * 1024;      // 每張圖片最大約 3.75MB（轉成文字後不超過 API 的 5MB）
 const IMAGE_SEND_RECENT = 6;              // 最近 6 則對話裡的圖片真的送給星河看，再舊的只說「傳過圖片」
 const PICK_MAX_BYTES = 60 * 1024 * 1024;  // 選圖片時，原始檔最大 60MB
+const RESUME_TIMEOUT_MS = 45 * 60 * 1000; // 接手爸爸和 Claude 的對話：最多做 45 分鐘
 const IMAGE_EXT = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif' };
 const IMAGE_MEDIA = { webp: 'image/webp', jpg: 'image/jpeg', png: 'image/png', gif: 'image/gif' };
 // 選檔案時可以選的格式；畫面能直接打開的照原樣讀，HEIC、TIFF 這類先請 macOS 轉成圖片
@@ -170,6 +171,39 @@ const COMPUTER_TOOL = {
   strict: true
 };
 
+// 接手爸爸和 Claude Code 的對話（爸爸的 Claude 額度用完時，改用 API 繼續做）
+const FIND_SESSIONS_TOOL = {
+  name: 'find_claude_sessions',
+  description: '找爸爸在這台電腦上和 Claude Code（Claude 桌面 App 的 Code 分頁或終端機）的對話紀錄。' +
+    '爸爸說 Claude 的額度用完了、要你接手或繼續他和 Claude 正在做的事，或想知道之前和 Claude 做到哪裡時，先用這個找到是哪一個對話。' +
+    'query 填對話的標題、資料夾名稱、GitHub 網址或關鍵字（從爸爸給的截圖、網址或說的話看出來）；不知道就填空字串，會列出最近的對話。' +
+    '找不到或有好幾個很像的，就問爸爸是哪一個，不要亂猜。',
+  input_schema: {
+    type: 'object',
+    properties: { query: { type: 'string', description: '標題、資料夾、GitHub 網址或關鍵字；可以是空字串' } },
+    required: ['query'],
+    additionalProperties: false
+  },
+  strict: true
+};
+const CONTINUE_SESSION_TOOL = {
+  name: 'continue_claude_session',
+  description: '接手爸爸和 Claude Code 的某個對話：在同一個資料夾、帶著那個對話的完整內容，用 API 繼續做下去（原本的對話不會被改動）。' +
+    '會花 API 費用，對話越長越貴，所以只有爸爸明確要你接手、繼續做時才使用。session_id 一定要用 find_claude_sessions 找到的 id。' +
+    'task 用繁體中文寫清楚要繼續做什麼；爸爸只說「繼續」的話，就寫「照之前的計畫，繼續完成還沒做完的事」。' +
+    '做完會回報結果，你再用星河的口吻簡短告訴爸爸做了什麼、還有什麼要爸爸決定。',
+  input_schema: {
+    type: 'object',
+    properties: {
+      session_id: { type: 'string', description: 'find_claude_sessions 找到的對話 id' },
+      task: { type: 'string', description: '要繼續做的事，寫清楚完整' }
+    },
+    required: ['session_id', 'task'],
+    additionalProperties: false
+  },
+  strict: true
+};
+
 // 給 Claude Code 的補充說明（做事的時候）
 const COMPUTER_SYSTEM = [
   '你正在幫使用者在他的 Mac 上完成一件事，沒有人可以回答你的問題，所以請直接動手完成。',
@@ -184,6 +218,19 @@ const COMPUTER_SYSTEM_EN = [
   'Write each command’s description in English, because it is shown to the user.',
   'Be very careful with irreversible actions such as deleting many files, formatting, sending messages or paying: do not do them unless the task clearly asks for it, and say so in the result.',
   'When finished, explain in two or three English sentences what you did and the result.'
+].join('\n');
+// 接手爸爸之前和 Claude 的對話時，再多說明這些
+const RESUME_SYSTEM = [
+  '【接手說明】使用者的 Claude 額度用完了，這次改由他的桌寵「星河」用 API 接著這段對話繼續做。',
+  '照對話裡和使用者約定好的計畫、做法和溝通方式繼續。',
+  '對話裡使用者要求先問過他才能做的事（例如下載東西），這次的工作內容沒有明確同意的話就先不要做，在結果裡寫清楚要問他什麼。',
+  '做完後用繁體中文簡短整理：做了什麼、結果如何、還有什麼沒做完或要使用者決定。'
+].join('\n');
+const RESUME_SYSTEM_EN = [
+  '[Taking over] The user’s Claude usage limit has run out, so their desktop pet “XingHe” is continuing this conversation using the API.',
+  'Continue with the plan, approach and communication style agreed with the user in this conversation.',
+  'Anything the user asked to be consulted about first (for example downloads): if this task does not clearly approve it, do not do it, and say in the result what to ask the user.',
+  'When finished, briefly summarize in English what you did, the result, and anything left unfinished or needing the user’s decision.'
 ].join('\n');
 
 // 用 Claude 帳號 聊天時的補充說明（能不能動手做事分開說）
@@ -805,7 +852,7 @@ function effectiveMaxTokens() {
 
 async function askClaude(history, ctx) {
   const flags = { effort: true, fast: fastAllowed() };
-  const tools = computerReady() ? [COMPUTER_TOOL] : null;
+  const tools = computerReady() ? [COMPUTER_TOOL, FIND_SESSIONS_TOOL, CONTINUE_SESSION_TOOL] : null;
   // 同一次對話的每一輪 system 都要一模一樣（思考內容會綁定前面的內容），所以時間只算一次
   const system = personaSystem();
   const maxTokens = effectiveMaxTokens();
@@ -852,40 +899,280 @@ async function askClaude(history, ctx) {
 }
 
 // 星河用 Claude Code 在電腦上做事（先用 API 金鑰，額度用完改用 Claude 帳號）
-async function runTool(block, ctx) {
-  const task = String((block.input && block.input.task) || '').trim();
-  if (block.name !== COMPUTER_TOOL.name || !task) {
-    return { type: 'tool_result', tool_use_id: block.id, content: '沒有收到要做的事情。', is_error: true };
+// ───────── 爸爸和 Claude Code 的對話紀錄（~/.claude/projects/資料夾/對話id.jsonl）─────────
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const sessionsRoot = () => path.join(app.getPath('home'), '.claude', 'projects');
+const sessionLinksPath = () => path.join(userDir(), 'sessions.json');   // 原本的對話 → 星河接手時分出來的對話
+
+function loadSessionLinks() {
+  const links = readJSON(sessionLinksPath(), {});
+  return links && typeof links === 'object' && !Array.isArray(links) ? links : {};
+}
+
+// 記下星河分出來的對話：下次接著它做，找對話時也不列出來（免得看起來有兩個一樣的）
+function saveSessionLink(original, fork) {
+  const links = loadSessionLinks();
+  const old = links[original] || {};
+  const all = [...new Set([...(Array.isArray(old.all) ? old.all : []), fork])].slice(-50);
+  links[original] = { fork, at: Date.now(), all };
+  try {
+    writePrivateJSON(sessionLinksPath(), links);
+  } catch (e) {
+    log('記錄接手的對話失敗：', e.message);
   }
-  log('開始操作電腦：', task.slice(0, 200));
-  ctx.onWork(task, '');
-  const res = await doComputerTask(task, ctx);
+}
+
+// 對話 id → 檔案位置（只找 projects 底下一層，不接受奇怪的 id）
+function sessionFile(id) {
+  if (!SESSION_ID.test(id)) return '';
+  let dirs = [];
+  try {
+    dirs = fs.readdirSync(sessionsRoot());
+  } catch {
+    return '';
+  }
+  for (const d of dirs) {
+    const file = path.join(sessionsRoot(), d, `${id}.jsonl`);
+    if (fs.existsSync(file)) return file;
+  }
+  return '';
+}
+
+// 對話紀錄可能有幾十 MB：只讀開頭和結尾
+function readEnds(file, size) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const head = Buffer.alloc(Math.min(256 * 1024, size));
+    fs.readSync(fd, head, 0, head.length, 0);
+    const tail = Buffer.alloc(Math.min(1024 * 1024, size));
+    fs.readSync(fd, tail, 0, tail.length, size - tail.length);
+    return { head: head.toString('utf8'), tail: tail.toString('utf8') };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+const jsonLines = (text) => text.split('\n').map((line) => {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return null;   // 切在一半的那一行
+  }
+}).filter((e) => e && typeof e === 'object');
+
+// 爸爸打的字（不算工具結果、系統訊息、指令）
+function promptText(e) {
+  if (!e || e.type !== 'user' || !e.message || e.isMeta) return '';
+  if (e.origin && e.origin.kind && e.origin.kind !== 'human') return '';
+  const c = e.message.content;
+  const parts = typeof c === 'string' ? [c] : Array.isArray(c) ? c.filter((b) => b && b.type === 'text').map((b) => b.text) : [];
+  const text = parts.join('\n').trim();
+  return !text || /^<(command-|local-command|system-reminder|task-notification)/.test(text) ? '' : text;
+}
+
+// 資料夾的 GitHub 網址（.git 可能是資料夾，也可能是寫著 gitdir: 的檔案）
+function gitRemote(dir) {
+  try {
+    let gitDir = path.join(dir, '.git');
+    if (fs.statSync(gitDir).isFile()) {
+      const m = fs.readFileSync(gitDir, 'utf8').match(/gitdir:\s*(.+)/);
+      if (!m) return '';
+      gitDir = path.resolve(dir, m[1].trim());
+    }
+    const m = fs.readFileSync(path.join(gitDir, 'config'), 'utf8').match(/\[remote "origin"\][^[]*?url\s*=\s*(\S+)/);
+    return m ? m[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+function sessionInfo(id, file) {
+  const st = fs.statSync(file);
+  const { head, tail } = readEnds(file, st.size);
+  const headLines = jsonLines(head);
+  const tailLines = jsonLines(tail);
+  const info = { id, file, updated: st.mtimeMs, title: '', cwd: '', bridge: '', prompts: [], lastReply: '', firstPrompt: '' };
+  for (const e of [...headLines, ...tailLines]) {
+    if (e.type === 'custom-title' && typeof e.customTitle === 'string' && e.customTitle.trim()) info.title = e.customTitle.trim();
+    if (!info.cwd && typeof e.cwd === 'string') info.cwd = e.cwd;
+    if (e.type === 'bridge-session' && typeof e.bridgeSessionId === 'string') info.bridge = e.bridgeSessionId;
+  }
+  for (const e of headLines) {
+    const t = promptText(e);
+    if (t) {
+      info.firstPrompt = t;
+      break;
+    }
+  }
+  for (const e of tailLines) {
+    const t = promptText(e);
+    if (t) info.prompts.push(t);
+    if (e.type === 'assistant' && e.message && Array.isArray(e.message.content)) {
+      const text = e.message.content.filter((b) => b && b.type === 'text').map((b) => b.text).join('').trim();
+      if (text) info.lastReply = text;
+    }
+  }
+  info.prompts = info.prompts.slice(-3);
+  if (!info.title) info.title = shorten(info.firstPrompt || info.prompts[0] || path.basename(info.cwd) || id, 40);
+  info.github = info.cwd ? gitRemote(info.cwd) : '';
+  return info;
+}
+
+// 最近的對話（不含星河自己分出來的）
+function listSessions(limit = 60) {
+  const links = loadSessionLinks();
+  const mine = new Set(Object.values(links).flatMap((l) => (Array.isArray(l.all) ? l.all : [])));
+  const files = [];
+  let dirs = [];
+  try {
+    dirs = fs.readdirSync(sessionsRoot());
+  } catch {
+    return [];
+  }
+  for (const d of dirs) {
+    let names = [];
+    try {
+      names = fs.readdirSync(path.join(sessionsRoot(), d));
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const id = name.slice(0, -'.jsonl'.length);
+      if (!name.endsWith('.jsonl') || !SESSION_ID.test(id) || mine.has(id)) continue;
+      const file = path.join(sessionsRoot(), d, name);
+      try {
+        files.push({ id, file, mtime: fs.statSync(file).mtimeMs });
+      } catch { /* 忽略 */ }
+    }
+  }
+  files.sort((a, b) => b.mtime - a.mtime);
+  const out = [];
+  for (const f of files.slice(0, limit)) {
+    try {
+      out.push(sessionInfo(f.id, f.file));
+    } catch { /* 讀不到就略過 */ }
+  }
+  return out;
+}
+
+// 用標題、資料夾、GitHub 網址、關鍵字找；找不到就列出最近的
+function findSessions(query) {
+  const all = listSessions();
+  const q = query.toLowerCase().trim();
+  const norm = (u) => String(u || '').toLowerCase().replace(/^git@github\.com:/, 'github.com/').replace(/^https?:\/\//, '')
+    .replace(/\.git$/, '').replace(/\/+$/, '');
+  if (!q) return { list: all.slice(0, 8), matched: false };
+  const words = q.split(/\s+/).filter(Boolean);
+  for (const s of all) {
+    const hay = [s.title, s.cwd, norm(s.github), s.id, s.bridge, s.firstPrompt, ...s.prompts].join('\n').toLowerCase();
+    let score = 0;
+    if (q.includes(s.id) || (s.bridge && q.includes(s.bridge.toLowerCase().replace(/^cse_/, '')))) score += 50;
+    if (s.github && norm(q).includes(norm(s.github))) score += 20;
+    if (s.title && q.includes(s.title.toLowerCase())) score += 20;
+    if (s.cwd && q.includes(path.basename(s.cwd).toLowerCase())) score += 5;
+    for (const w of words) if (hay.includes(w)) score += 1;
+    s.score = score;
+  }
+  const hits = all.filter((s) => s.score > 0).sort((a, b) => b.score - a.score || b.updated - a.updated);
+  return hits.length ? { list: hits.slice(0, 8), matched: true } : { list: all.slice(0, 8), matched: false };
+}
+
+function describeSessions({ list, matched }) {
+  if (!list.length) return '這台電腦上找不到 Claude Code 的對話紀錄。';
+  const when = (ms) => new Date(ms).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: true });
+  const rows = list.map((s, i) => {
+    const lines = [
+      `${i + 1}. id：${s.id}`,
+      `   標題：${s.title}`,
+      `   資料夾：${s.cwd || '（不知道）'}`,
+      s.github ? `   GitHub：${s.github}` : '',
+      `   最後更新：${when(s.updated)}`,
+      s.prompts.length ? `   最近的請求：${s.prompts.map((t) => shorten(t, 150)).join(' ／ ')}` : '',
+      // 最相關的那一個多給一點內容：Claude 最後說了什麼（通常是做到哪裡）
+      i === 0 && s.lastReply ? `   Claude 最後的回覆：${shorten(s.lastReply, 600)}` : ''
+    ];
+    return lines.filter(Boolean).join('\n');
+  });
+  const head = matched ? '找到這些 Claude Code 對話（最符合的在前面）：' : '沒有找到符合的，這些是最近的 Claude Code 對話：';
+  return `${head}\n${rows.join('\n')}`;
+}
+
+// 要接手的對話：星河之前接手過、而且爸爸之後沒有再用原本的對話，就接著星河的分身做
+function sessionToResume(id) {
+  const file = sessionFile(id);
+  if (!file) return { error: '找不到這個對話，請先用 find_claude_sessions 找到正確的 id。' };
+  let info;
+  try {
+    info = sessionInfo(id, file);
+  } catch (e) {
+    return { error: `讀不到這個對話：${e.message}` };
+  }
+  if (!info.cwd || !fs.existsSync(info.cwd)) return { error: `這個對話的資料夾已經不在了：${info.cwd || '（不知道）'}` };
+  const link = loadSessionLinks()[id];
+  const forkFile = link && link.fork ? sessionFile(link.fork) : '';
+  const reuse = forkFile && info.updated <= link.at;
+  return { id, title: info.title, cwd: info.cwd, resume: reuse ? link.fork : id, fork: !reuse };
+}
+
+async function runTool(block, ctx) {
+  const input = block.input || {};
+  const fail = (content) => ({ type: 'tool_result', tool_use_id: block.id, content, is_error: true });
+  if (block.name === FIND_SESSIONS_TOOL.name) {
+    const found = findSessions(String(input.query || ''));
+    log('找 Claude Code 的對話：', String(input.query || '').slice(0, 100), `→ ${found.list.length} 個`);
+    return { type: 'tool_result', tool_use_id: block.id, content: describeSessions(found) };
+  }
+  const task = String(input.task || '').trim();
+  if (!task) return fail('沒有收到要做的事情。');
+  if (block.name === CONTINUE_SESSION_TOOL.name) {
+    const target = sessionToResume(String(input.session_id || '').trim());
+    if (target.error) return fail(target.error);
+    const label = english() ? `Taking over “${target.title}”: ${task}` : `接手「${target.title}」：${task}`;
+    log('接手 Claude Code 的對話：', target.id, target.resume === target.id ? '（從原本的對話分出來）' : `（接著星河的分身 ${target.resume}）`);
+    return runWork(block, ctx, task, label, target);
+  }
+  if (block.name !== COMPUTER_TOOL.name) return fail('沒有這個工具。');
+  return runWork(block, ctx, task, task, null);
+}
+
+// 交給 Claude Code 動手做（一般的操作電腦，或接手爸爸和 Claude 的對話）
+async function runWork(block, ctx, task, label, target) {
+  log('開始操作電腦：', label.slice(0, 200));
+  ctx.onWork(label, '');
+  const res = await doComputerTask(task, ctx, target, label);
   // 真的有動手才算（完成了，或做過任何步驟）；被停下來的話可能有步驟還沒回報，保守一點當作可能動過
   if (res.ok || (res.steps && res.steps.length)) ctx.didWork = true;
   if (res.kind === 'cancelled' || res.kind === 'timeout') ctx.maybeWorked = true;
-  ctx.workRuns.push({ task, ok: res.ok, kind: res.kind, text: shorten(res.text, 600) });
+  ctx.workRuns.push({ task: label, ok: res.ok, kind: res.kind, text: shorten(res.text, 600) });
   log('操作電腦結束：', res.ok ? '完成' : `失敗（${res.kind}）`);
   if (res.kind === 'cancelled') throw new XingheError('cancelled', 0, 'cancelled');
   const text = res.ok ? res.text : `沒有完成（${res.kind}）：${res.text}`;
   return { type: 'tool_result', tool_use_id: block.id, content: cutText(text, 6000) || '完成了。', is_error: !res.ok };
 }
 
-async function doComputerTask(task, ctx) {
+// target：要接手的對話（在那個資料夾、接著那個對話做；做比較久也沒關係）；label：泡泡裡顯示的工作內容
+async function doComputerTask(task, ctx, target = null, label = task) {
   const bin = claudeCode.findClaude();
+  const system = english() ? COMPUTER_SYSTEM_EN : COMPUTER_SYSTEM;
   const common = {
     bin,
     prompt: task,
-    appendSystemPrompt: english() ? COMPUTER_SYSTEM_EN : COMPUTER_SYSTEM,
+    appendSystemPrompt: target ? `${system}\n\n${english() ? RESUME_SYSTEM_EN : RESUME_SYSTEM}` : system,
+    ...(target ? { cwd: target.cwd, resume: target.resume, fork: target.fork, timeoutMs: RESUME_TIMEOUT_MS } : {}),
     lang: config.lang,
     model: config.model,
     effort: config.effort,
     signal: ctx.signal,
     onProgress: (step) => {
       ctx.didWork = true;
-      ctx.onWork(task, step);
+      ctx.onWork(label, step);
     }
   };
-  let res = await claudeCode.run({ ...common, apiKey: config.apiKey || null, fast: fastAllowed() && !!config.apiKey });
+  const remember = (r) => {
+    if (target && r.sessionId && SESSION_ID.test(r.sessionId)) saveSessionLink(target.id, r.sessionId);
+    return r;
+  };
+  let res = remember(await claudeCode.run({ ...common, apiKey: config.apiKey || null, fast: fastAllowed() && !!config.apiKey }));
   if (!res.ok && config.apiKey && res.kind === 'credit' && config.maxFallback) {
     log('API 額度用完了，改用 Claude 帳號做事');
     // 做到一半才用完的話，告訴 Claude 帳號 已經做了哪些，避免重複（例如訊息傳兩次）
@@ -894,7 +1181,7 @@ async function doComputerTask(task, ctx) {
       ? `${task}\n\n【注意】剛剛已經做過下面這些步驟，但還沒做完就中斷了：\n${done.map((x) => `‧${x}`).join('\n')}\n` +
         '請先檢查電腦現在的狀態，不要重複已經完成的步驟（特別是傳訊息、寄信、寫入或搬移檔案），只完成還沒做完的部分。'
       : task;
-    res = await claudeCode.run({ ...common, prompt, apiKey: null, fast: false });
+    res = remember(await claudeCode.run({ ...common, prompt, apiKey: null, fast: false }));
   }
   return res;
 }
