@@ -353,3 +353,31 @@ label.check input {
 .status-row .warn {
   color: var(--gold);
 }
+
+/* 快捷鍵的格子：按一下開始錄，再按組合鍵 */
+button.hotkey {
+  flex: 1;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(5, 9, 28, 0.7);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.hotkey.recording {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(94, 242, 255, 0.18);
+  color: var(--cyan);
+  letter-spacing: normal;
+}
+
+button.hotkey.empty {
+  color: var(--muted);
+  letter-spacing: normal;
+}

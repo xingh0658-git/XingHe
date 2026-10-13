@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('xinghe', {
   onSay: (cb) => ipcRenderer.on('pet:say', (_e, m) => cb(m)),
   onSleep: (cb) => ipcRenderer.on('pet:sleep', (_e, v) => cb(!!v)),
   onOpenChat: (cb) => ipcRenderer.on('pet:open-chat', () => cb()),
+  onCloseChat: (cb) => ipcRenderer.on('pet:close-chat', () => cb()),
   onPause: (cb) => ipcRenderer.on('pet:pause', (_e, v) => cb(!!v)),
   onMenuClosed: (cb) => ipcRenderer.on('pet:menu-closed', () => cb()),
   onWorking: (cb) => ipcRenderer.on('pet:working', (_e, w) => cb(w || {})),

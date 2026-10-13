@@ -4,7 +4,7 @@
 
 const {
   app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage,
-  shell, clipboard, dialog, powerMonitor, session, systemPreferences, desktopCapturer
+  shell, clipboard, dialog, powerMonitor, session, systemPreferences, desktopCapturer, globalShortcut
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -93,6 +93,17 @@ const IMAGE_MAX_BYTES = 3840 * 1024;      // 每張圖片最大約 3.75MB（轉�
 const IMAGE_SEND_RECENT = 6;              // 最近 6 則對話裡的圖片真的送給星河看，再舊的只說「傳過圖片」
 const PICK_MAX_BYTES = 60 * 1024 * 1024;  // 選圖片時，原始檔最大 60MB
 const RESUME_TIMEOUT_MS = 45 * 60 * 1000; // 接手爸爸和 Claude 的對話：最多做 45 分鐘
+// 召喚星河的快捷鍵（在任何 App 裡按都有效）：⌃⌥X 這台電腦沒有別的程式在用
+const DEFAULT_HOTKEY = 'Control+Alt+X';
+const HOTKEY_KEY = /^(F([1-9]|1[0-9]|2[0-4])|[A-Z0-9]|Space|Return|Tab|Up|Down|Left|Right|Home|End|PageUp|PageDown|Backspace|Delete|Escape|[-=\[\];',./`\\])$/;
+// macOS 自己在用的組合（登記得了，但會跟系統打架）
+const SYSTEM_HOTKEYS = new Set([
+  'Command+Space', 'Alt+Command+Space', 'Control+Space', 'Control+Alt+Space', 'Control+Command+Space', 'Alt+Space',
+  'Command+Tab', 'Shift+Command+Tab', 'Alt+Command+Escape', 'Control+Command+Q', 'Shift+Command+Q', 'Control+Command+F',
+  'Shift+Command+3', 'Shift+Command+4', 'Shift+Command+5', 'Control+Shift+Command+3', 'Control+Shift+Command+4',
+  'Control+Up', 'Control+Down', 'Control+Left', 'Control+Right', 'Command+H', 'Command+Q', 'Command+W', 'Alt+Command+H',
+  'Alt+Command+D', 'Alt+Command+M', 'Command+M', 'Shift+Command+N', 'Control+F2', 'Control+F3', 'Control+F7', 'Control+F8', 'Control+F5', 'Control+F6', 'Control+F4'
+]);
 // 偷看螢幕：看爸爸在做什麼（只看一眼，截圖不存檔、不留在對話裡）
 const WATCH_MODES = [
   { id: 'off', label: '不看' },
@@ -161,6 +172,9 @@ const UI_TEXT = {
     clearDetail: '清除之後，星河會忘記你們之前聊過的所有內容（包括整理好的記憶），而且沒辦法復原。',
     cancel: '取消', clearButton: '清除',
     pickTitle: '選擇要給星河看的圖片', pickButton: '給星河看', pickFilter: '圖片',
+    hotkeyBad: '快捷鍵要同時按兩個修飾鍵（例如 ⌃⌥、⌥⌘）再加一個按鍵；只按 ⌘C 這種會把別的 App 的快捷鍵搶走。F 鍵可以單獨用。',
+    hotkeySystem: '這個組合 macOS 已經在用了，請換一個。',
+    hotkeyTaken: '這個組合登記不了，可能被別的程式佔用了，請換一個。',
     needKey: '請先貼上 API 金鑰喔。',
     badKey: '金鑰裡好像混進了看不見或特殊的字，請到 Claude Console 重新複製，再貼上一次喔。',
     saveFailed: '金鑰存不進電腦裡…請確認磁碟空間後再按一次儲存。（這次開著的時候還是可以聊天）'
@@ -173,6 +187,9 @@ const UI_TEXT = {
     clearDetail: 'XingHe will forget everything you have talked about (including the saved summary). This can\'t be undone.',
     cancel: 'Cancel', clearButton: 'Clear',
     pickTitle: 'Choose pictures to show XingHe', pickButton: 'Show XingHe', pickFilter: 'Images',
+    hotkeyBad: 'The shortcut needs two modifiers (for example ⌃⌥ or ⌥⌘) plus a key; a single ⌘C-style shortcut would steal it from every app. Function keys can be used alone.',
+    hotkeySystem: 'macOS already uses that combination. Please pick another.',
+    hotkeyTaken: 'That combination couldn’t be registered — another app may be using it. Please pick another.',
     needKey: 'Please paste an API key first.',
     badKey: 'The key contains invisible or special characters. Please copy it again from Claude Console and paste it.',
     saveFailed: 'Couldn\'t save the key to this Mac… please check the disk space and click Save again. (Chat still works while XingHe is open.)'
@@ -452,12 +469,87 @@ function loadConfig() {
     computer: c.computer !== false,
     maxFallback: c.maxFallback !== false,
     watch: WATCH_MODES.some((m) => m.id === c.watch) ? c.watch : 'sometimes',
-    wander: c.wander !== false
+    wander: c.wander !== false,
+    hotkey: c.hotkey === '' ? '' : ((h) => (h && !SYSTEM_HOTKEYS.has(h) ? h : DEFAULT_HOTKEY))(normalizeHotkey(c.hotkey))
   };
   if (rawKey && config.apiKey !== rawKey) saveConfig();   // 把清理過的金鑰存回去
   try {
     if (fs.existsSync(configPath())) fs.chmodSync(configPath(), 0o600);
   } catch { /* 忽略 */ }
+}
+
+// 整理快捷鍵的寫法：修飾鍵固定順序、按鍵大寫；不合法回傳空字串
+function normalizeHotkey(raw) {
+  if (typeof raw !== 'string' || !raw.trim()) return '';
+  const parts = raw.split('+').map((p) => p.trim()).filter(Boolean);
+  const mods = new Set();
+  let key = '';
+  for (const p of parts) {
+    const low = p.toLowerCase();
+    if (['command', 'cmd', 'meta', 'super'].includes(low)) mods.add('Command');
+    else if (['control', 'ctrl'].includes(low)) mods.add('Control');
+    else if (['alt', 'option'].includes(low)) mods.add('Alt');
+    else if (low === 'shift') mods.add('Shift');
+    else if (key) return '';
+    else key = p.length === 1 ? p.toUpperCase() : p[0].toUpperCase() + p.slice(1);
+  }
+  if (!HOTKEY_KEY.test(key)) return '';
+  const isFn = /^F\d+$/.test(key);
+  // 要兩個修飾鍵（至少一個是 ⌃、⌥、⌘）：只按 ⌘C 這種會把所有 App 的複製搶走；F 鍵可以單獨用
+  const strong = ['Command', 'Control', 'Alt'].filter((m) => mods.has(m)).length;
+  if (!isFn && (strong < 1 || mods.size < 2)) return '';
+  const order = ['Control', 'Alt', 'Shift', 'Command'].filter((m) => mods.has(m));
+  return [...order, key].join('+');
+}
+
+// 登記快捷鍵（換掉舊的）；登記不了就維持原本的，回傳 false
+let registeredHotkey = '';     // 現在該生效的快捷鍵
+let hotkeySuspended = false;   // 設定視窗開著時先暫停：錄快捷鍵時才不會被自己攔走
+function tryRegister(acc) {
+  try {
+    return globalShortcut.register(acc, hotkeyPressed);
+  } catch (e) {
+    log('登記快捷鍵失敗：', acc, e.message);
+    return false;
+  }
+}
+function registerHotkey(acc) {
+  if (acc === registeredHotkey) return true;
+  if (acc) {
+    if (!tryRegister(acc)) return false;
+    if (hotkeySuspended) globalShortcut.unregister(acc);   // 只是先確認登記得了，關掉設定視窗再真的生效
+  }
+  if (registeredHotkey && !hotkeySuspended) {
+    try {
+      globalShortcut.unregister(registeredHotkey);
+    } catch { /* 忽略 */ }
+  }
+  registeredHotkey = acc;
+  if (acc) log('快捷鍵：', acc);
+  return true;
+}
+
+function suspendHotkey(on) {
+  if (on === hotkeySuspended) return;
+  hotkeySuspended = on;
+  if (!registeredHotkey) return;
+  if (on) {
+    try {
+      globalShortcut.unregister(registeredHotkey);
+    } catch { /* 忽略 */ }
+  } else if (!tryRegister(registeredHotkey)) {
+    log('快捷鍵恢復不了（可能被別的程式佔用）：', registeredHotkey);
+  }
+}
+
+// 按了快捷鍵：叫星河出來、打開聊天框；聊天框已經開著就收起來
+function hotkeyPressed() {
+  if (quitting) return;
+  if (petAlive() && petWin.isVisible() && uiState.chat && petWin.isFocused()) {
+    send('pet:close-chat');
+    return;
+  }
+  openChat();
 }
 
 function clampScale(n) {
@@ -1974,7 +2066,7 @@ function menuItems() {
   const stop = currentJob ? [{ label: ui('stop'), click: stopCurrentJob }, { type: 'separator' }] : [];
   return [
     ...stop,
-    { label: ui('chat'), click: openChat },
+    { label: ui('chat'), accelerator: config.hotkey || undefined, registerAccelerator: false, click: openChat },
     { label: ui('settings'), click: openSettings },
     { label: ui('quiet'), type: 'checkbox', checked: config.quiet, click: (item) => setQuiet(item.checked) },
     { label: ui('clear'), click: () => { confirmClearHistory(); } },
@@ -2032,6 +2124,7 @@ function openSettings() {
     }
   });
   lockDown(settingsWin.webContents);
+  suspendHotkey(true);   // 錄快捷鍵時，現在的快捷鍵不能搶走按鍵
   settingsWin.loadFile(path.join(__dirname, 'settings.html'));
   settingsWin.once('ready-to-show', () => {
     if (!settingsWin || settingsWin.isDestroyed()) return;
@@ -2041,6 +2134,7 @@ function openSettings() {
   });
   settingsWin.on('closed', () => {
     settingsWin = null;
+    suspendHotkey(false);
     // 沒有儲存就關掉：大小和位置回到原本的
     const back = previewAnchor;
     previewAnchor = null;
@@ -2214,6 +2308,7 @@ function registerIpc() {
       watch: config.watch,
       watchModes: WATCH_MODES,
       wander: config.wander,
+      hotkey: config.hotkey,
       screenAccess: screenAccess(),
       lang: config.lang
     };
@@ -2290,6 +2385,17 @@ function registerIpc() {
     if (apiKey && !/^[\x21-\x7e]+$/.test(apiKey)) {
       return { ok: false, message: ui('badKey') };
     }
+    // 快捷鍵：先確定登記得了，再改其他設定
+    const rawHotkey = data && typeof data.hotkey === 'string' ? data.hotkey : config.hotkey;
+    const hotkey = rawHotkey.trim() ? normalizeHotkey(rawHotkey) : '';
+    if (rawHotkey.trim() && !hotkey) return { ok: false, message: ui('hotkeyBad') };
+    if (hotkey && SYSTEM_HOTKEYS.has(hotkey)) return { ok: false, message: ui('hotkeySystem') };
+    if (hotkey !== config.hotkey) {
+      if (!registerHotkey(hotkey)) return { ok: false, message: ui('hotkeyTaken') };
+    } else if (!registerHotkey(hotkey)) {
+      log('快捷鍵還是登記不了（沒動它，其他設定照存）：', hotkey);   // 啟動時就失敗的話，不要卡住其他設定
+    }
+    config.hotkey = hotkey;
     const keyChanged = apiKey !== config.apiKey;
     config.apiKey = apiKey;
     config.model = model;
@@ -2317,6 +2423,7 @@ function registerIpc() {
     if (!saveConfig()) {
       return { ok: false, message: ui('saveFailed') };
     }
+    refreshTrayMenu();   // 選單上的快捷鍵提示
     if (keyChanged && apiKey) say(L().misc.keySaved);
     setTimeout(() => {
       if (settingsWin && !settingsWin.isDestroyed()) settingsWin.close();
@@ -2650,6 +2757,7 @@ function start() {
   scheduleCare();
   scheduleGlance();
   scheduleWander();
+  if (config.hotkey && !registerHotkey(config.hotkey)) log('快捷鍵登記不了（可能被別的程式佔用）：', config.hotkey);
   pruneImages();
   // 螢幕拔掉或解析度改變時，確保星河還在看得到的地方（不改記住的位置）
   const keepOnScreen = () => {
@@ -2687,6 +2795,7 @@ if (!app.requestSingleInstanceLock()) {
     if (!sleeping) afterReady(reloaded, { say: L().misc.summoned });
   });
   app.on('window-all-closed', () => { /* 留在選單列，不結束 */ });
+  app.on('will-quit', () => globalShortcut.unregisterAll());
   // 結束星河時，正在做事的 Claude Code 也要一起停下來（最多等 10 秒）
   let quitReady = false;
   let quitWaiting = false;

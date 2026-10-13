@@ -85,6 +85,13 @@
     <select id="fs-hide"></select>
     <label class="check"><input type="checkbox" id="wander"> <span data-i18n="wander">讓星河自己在桌面上散步</span></label>
 
+    <label for="hotkey" data-i18n="hotkeyTitle">召喚星河的快捷鍵</label>
+    <div class="key-row">
+      <button id="hotkey" type="button" class="hotkey" aria-live="polite">⌃⌥X</button>
+      <button id="hotkey-clear" type="button" class="small" data-i18n="hotkeyClear">清除</button>
+    </div>
+    <p class="note" data-i18n="hotkeyNote">按一下上面的格子，再按你要的組合鍵：要同時按兩個修飾鍵（例如 ⌃⌥ 或 ⌥⌘）加一個按鍵，像 ⌃⌥X。在任何 App 裡按它，星河都會出現並打開聊天框；聊天框開著時再按一次會收起來。</p>
+
     <h2 class="gap" data-i18n="watchTitle">讓星河看你在做什麼</h2>
     <select id="watch"></select>
     <p class="note" data-i18n="watchNote">星河會偶爾偷看一眼螢幕，看到有趣或想關心的事才說話。你在輸入密碼、登入、付款的畫面時不會看；截圖只用來看一眼，不會存檔。用 API 計費，「偶爾看」一天大約 1 美元。</p>

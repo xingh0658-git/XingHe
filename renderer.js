@@ -847,6 +847,14 @@
     else openChat();
   });
 
+  // 快捷鍵再按一次：收起聊天框，把焦點還給原本的程式
+  api.onCloseChat(() => {
+    if (!state.chatOpen) return;
+    closeChat();
+    if (!state.waiting) hideBubble(true);
+    releaseFocus();
+  });
+
   // 打瞌睡 / 醒來
   api.onSleep((value) => {
     if (state.sleeping === value) return;
