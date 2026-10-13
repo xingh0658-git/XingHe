@@ -24,6 +24,10 @@
   const hotkeyBtn = $('#hotkey');
   const hotkeyClearBtn = $('#hotkey-clear');
   const maxBox = $('#max-fallback');
+  const billingBox = $('#billing');
+  const billingNote = $('#billing-note');
+  const keyLabel = $('#key-label');
+  const maxLabel = maxBox.parentElement.querySelector('span');
   const claudeStatus = $('#claude-status');
   const loginBtn = $('#max-login');
   const langBox = $('#lang');
@@ -35,7 +39,18 @@
     zh: {
       docTitle: '星河的設定',
       title: '星河的設定',
-      subtitle: '貼上 Claude API 金鑰，星河就能跟你聊天囉！',
+      subtitle: '選擇用 Claude 帳號的週額度或 API 金鑰，星河就能跟你聊天囉！',
+      billing: '聊天用的額度',
+      billingAccount: 'Claude 帳號（週額度）',
+      billingApi: 'API 金鑰',
+      billingAccountNote: '用你 Claude 訂閱（Pro／Max）的週額度，不另外花錢；要先按右邊的「登入 Claude」登入一次。回覆會比 API 慢幾秒，也不會開快速模式。',
+      billingApiNote: '用 Claude Console 儲值的 API 額度，依用量計費；回覆比較快，可以開快速模式。',
+      apiKeyOptional: 'API 金鑰（選填：週額度用完時才用）',
+      apiFallback: '週額度用完時，改用 API 金鑰（會依用量計費）',
+      noKeyAccount: '用 Claude 帳號的週額度聊天，不用金鑰 ✓',
+      accountNeedLogin: '還沒登入 Claude：按右邊的「登入 Claude」，星河才能用週額度聊天。',
+      accountNoClaude: '找不到 Claude Code（需要安裝 Claude 桌面 App），沒辦法用週額度聊天。',
+      speedAccount: '用 Claude 帳號（週額度）時不會開快速模式；週額度用完改用 API 時，才會照這裡的設定。',
       step1: '按「打開 Claude Console」，登入你的帳號',
       step2: '到「API Keys」建立一把新的金鑰，按複製',
       step3: '回到這裡按「從剪貼簿貼上」，再按「儲存」',
@@ -66,7 +81,7 @@
       hotkeyBad: '要同時按兩個修飾鍵（例如 ⌃⌥、⌥⌘）再加一個按鍵喔；只按 ⌘C 這種會把別的 App 的快捷鍵搶走。F 鍵可以單獨用。',
       hotkeyUnsupported: '這個鍵不能當快捷鍵，請換一個。',
       watchTitle: '讓星河看你在做什麼',
-      watchNote: '星河會偶爾偷看一眼螢幕，看到有趣或想關心的事才說話。你在輸入密碼、登入、付款的畫面時不會看；截圖只用來看一眼，不會存檔。用 API 計費，「偶爾看」一天大約 1 美元。',
+      watchNote: '星河會偶爾偷看一眼螢幕，看到有趣或想關心的事才說話。你在輸入密碼、登入、付款的畫面時不會看；截圖只用來看一眼，不會存檔。用你選的額度：Claude 帳號會用到週額度；API 的話「偶爾看」一天大約 1 美元。',
       screenOpen: '打開螢幕錄製設定',
       screenOk: '螢幕錄製權限：已允許',
       screenNo: '還沒有螢幕錄製權限：到「系統設定 → 隱私權與安全性 → 螢幕錄製」打開「星河」，再重新打開星河。',
@@ -104,7 +119,18 @@
     en: {
       docTitle: 'XingHe Settings',
       title: 'XingHe Settings',
-      subtitle: 'Paste a Claude API key and XingHe can chat with you!',
+      subtitle: 'Choose your Claude plan’s weekly usage or an API key, and XingHe can chat with you!',
+      billing: 'What XingHe chats with',
+      billingAccount: 'Claude account (weekly usage)',
+      billingApi: 'API key',
+      billingAccountNote: 'Uses your Claude plan’s (Pro/Max) weekly usage at no extra cost. Click “Sign in to Claude” on the right once first. Replies are a few seconds slower than the API, and fast mode is never used.',
+      billingApiNote: 'Uses API credit you top up in Claude Console, billed by usage. Replies are faster and fast mode is available.',
+      apiKeyOptional: 'API Key (optional: only used when weekly usage runs out)',
+      apiFallback: 'When weekly usage runs out, use my API key (billed by usage)',
+      noKeyAccount: 'XingHe will chat using your Claude account’s weekly usage — no key needed ✓',
+      accountNeedLogin: 'Not signed in to Claude yet: click “Sign in to Claude” on the right so XingHe can use your weekly usage.',
+      accountNoClaude: 'Claude Code not found (install the Claude desktop app), so weekly usage can’t be used.',
+      speedAccount: 'Fast mode is never used with your Claude account’s weekly usage; it only applies if XingHe switches to the API when weekly usage runs out.',
       step1: 'Click “Open Claude Console” and sign in',
       step2: 'Go to “API Keys”, create a new key and copy it',
       step3: 'Come back here, click “Paste from Clipboard”, then “Save”',
@@ -135,7 +161,7 @@
       hotkeyBad: 'Hold two modifiers (for example ⌃⌥ or ⌥⌘) plus a key; a single ⌘C-style shortcut would steal it from every app. Function keys can be used alone.',
       hotkeyUnsupported: 'That key can’t be used in a shortcut. Please try another.',
       watchTitle: 'Let XingHe see what you’re doing',
-      watchNote: 'XingHe peeks at your screen now and then and only speaks when he sees something interesting or worth caring about. He never looks while you’re typing a password, signing in or paying; the screenshot is only glanced at, never saved. Billed through the API: “now and then” costs about US$1 a day.',
+      watchNote: 'XingHe peeks at your screen now and then and only speaks when he sees something interesting or worth caring about. He never looks while you’re typing a password, signing in or paying; the screenshot is only glanced at, never saved. Uses whatever you chose above: your Claude account’s weekly usage, or with the API about US$1 a day for “now and then”.',
       screenOpen: 'Open Screen Recording settings',
       screenOk: 'Screen Recording permission: allowed',
       screenNo: 'Screen Recording isn’t allowed yet: turn on “XingHe” under System Settings → Privacy & Security → Screen Recording, then reopen XingHe.',
@@ -199,6 +225,20 @@
   let speed = 'standard';
   let hintState = { key: '', raw: '', tone: '' };   // 記住現在的提示，換語言時重新顯示
   let statusKey = 'checking';
+  // 聊天用的額度；兩種模式各有自己的「用完時改用另一種」勾選
+  let billing = 'api';
+  const fallbacks = { api: true, account: true };
+  function renderBilling() {
+    for (const b of billingBox.querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === billing);
+    const account = billing === 'account';
+    billingNote.textContent = t(account ? 'billingAccountNote' : 'billingApiNote');
+    keyLabel.textContent = t(account ? 'apiKeyOptional' : 'apiKey');
+    maxLabel.textContent = t(account ? 'apiFallback' : 'maxFallback');
+    maxBox.checked = fallbacks[billing];
+    $('#steps').hidden = account || !!keyInput.value.trim();
+    renderSpeed();
+    checkKey();
+  }
 
   // 提示：key 是上面的文字代號；raw 是主程式傳來、已經翻好的文字
   function showHint(key, tone, raw) {
@@ -226,6 +266,7 @@
     renderStatus();
     renderScreen();
     renderHotkey();
+    renderBilling();
     showHint(hintState.key, hintState.tone, hintState.raw);
     fit();
   }
@@ -332,7 +373,11 @@
 
   function checkKey() {
     const v = keyInput.value.trim();
-    if (!v) showHint(maxBox.checked ? 'noKeyMax' : 'noKey');
+    if (billing === 'account' && !v) {
+      if (statusKey === 'statusOut') showHint('accountNeedLogin', 'warn');
+      else if (statusKey === 'statusMissing') showHint('accountNoClaude', 'warn');
+      else showHint('noKeyAccount', 'ok');
+    } else if (!v) showHint(maxBox.checked ? 'noKeyMax' : 'noKey');
     else if (!/^[\x21-\x7e]+$/.test(cleanKey(v))) showHint('keyBadChars', 'warn');
     else if (!/^sk-ant-/.test(cleanKey(v))) showHint('keyNotClaude', 'warn');
     else showHint('keyOk', 'ok');
@@ -341,6 +386,15 @@
   // 速度：快速模式只有 Opus 5.5 能用
   function renderSpeed() {
     const fastOk = fastModels.includes(modelSelect.value);
+    if (billing === 'account') {
+      for (const b of speedBox.querySelectorAll('button')) {
+        b.classList.toggle('on', b.dataset.v === speed);
+        if (b.dataset.v === 'fast') b.disabled = !fastOk;
+      }
+      speedNote.classList.remove('warn');
+      speedNote.textContent = t('speedAccount');
+      return;
+    }
     if (!fastOk && speed === 'fast') speed = 'standard';
     for (const b of speedBox.querySelectorAll('button')) {
       b.classList.toggle('on', b.dataset.v === speed);
@@ -380,6 +434,7 @@
       loginBtn.hidden = false;
     }
     renderStatus();
+    if (billing === 'account' && !keyInput.value.trim()) checkKey();   // 登入狀態變了：更新提示
     fit();
     return s;
   }
@@ -431,7 +486,10 @@
     hotkey = typeof data.hotkey === 'string' ? data.hotkey : '';
     screenAccess = data.screenAccess || '';
     computerBox.checked = data.computer;
-    maxBox.checked = data.maxFallback;
+    billing = data.billing === 'account' ? 'account' : 'api';
+    fallbacks.api = data.maxFallback !== false;
+    fallbacks.account = data.apiFallback !== false;
+    maxBox.checked = fallbacks[billing];
     keyInput.value = data.apiKey || '';
     $('#steps').hidden = !!data.apiKey;
     lang = data.lang === 'en' ? 'en' : 'zh';
@@ -451,7 +509,9 @@
         speed,
         maxTokens: Number(tokensNum.value),
         computer: computerBox.checked,
-        maxFallback: maxBox.checked,
+        billing,
+        maxFallback: fallbacks.api,
+        apiFallback: fallbacks.account,
         scale: Number(scaleRange.value) / 100,
         fullscreenHide: fsHideSelect.value,
         watch: watchSelect.value,
@@ -485,7 +545,17 @@
   $('#cancel').addEventListener('click', () => api.close());
   saveBtn.addEventListener('click', save);
   keyInput.addEventListener('input', checkKey);
-  maxBox.addEventListener('change', checkKey);
+  maxBox.addEventListener('change', () => {
+    fallbacks[billing] = maxBox.checked;
+    checkKey();
+  });
+  billingBox.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.dataset.v === billing) return;
+    billing = b.dataset.v;
+    renderBilling();
+    fit();
+  });
   modelSelect.addEventListener('change', renderSpeed);
   tokensRange.addEventListener('input', () => setTokens(tokensRange.value));
   tokensNum.addEventListener('change', () => setTokens(tokensNum.value));

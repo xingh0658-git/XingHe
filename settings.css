@@ -313,6 +313,10 @@ h2.gap {
   color: var(--lavender);
 }
 
+.seg.billing {
+  height: 38px;
+}
+
 .seg.lang {
   width: 210px;
   height: 34px;

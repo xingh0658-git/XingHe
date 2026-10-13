@@ -82,6 +82,9 @@ const misc = {
   quietOn: '（比了個噓的手勢）好，星河會安安靜靜陪在旁邊。',
   quietOff: '（耳朵豎起來）星河可以說話了嗎？太好了～',
   summoned: '（從星星裡蹦出來）星河在這裡！爸爸找我嗎？',
+  billingAccount: '（點點頭）好～之後用爸爸 Claude 帳號的週額度陪你聊天！',
+  billingApi: '（點點頭）好～之後用 API 金鑰陪你聊天！',
+  needLogin: '（歪著頭）爸爸，要先在設定裡按「登入 Claude」，我才能用週額度陪你聊天喔！',
   screenAsk: '（指著螢幕上方）爸爸，想讓我看你在做什麼的話，要到「系統設定 → 隱私權與安全性 → 螢幕錄製」把「星河」打開，然後重新打開我一次喔～'
 };
 
@@ -155,6 +158,9 @@ const en = {
     quietOn: '(puts a finger to lips) Okay, I’ll stay quietly by your side.',
     quietOff: '(ears perk up) I can talk again? Yay~',
     summoned: '(pops out of the stars) XingHe’s here! Were you looking for me, Dad?',
+    billingAccount: '(nods) Okay~ I’ll chat with you using your Claude account’s weekly usage from now on!',
+    billingApi: '(nods) Okay~ I’ll chat with you using the API key from now on!',
+    needLogin: '(tilts head) Dad, click “Sign in to Claude” in Settings first, then I can chat using your weekly usage!',
     screenAsk: '(points at the top of the screen) Dad, if you want me to see what you’re doing, turn on “XingHe” under System Settings → Privacy & Security → Screen Recording, then reopen me once~'
   }
 };

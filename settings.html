@@ -12,12 +12,20 @@
       <img src="xinghe.png" alt="" draggable="false">
       <div>
         <h1 data-i18n="title">星河的設定</h1>
-        <p data-i18n="subtitle">貼上 Claude API 金鑰，星河就能跟你聊天囉！</p>
+        <p data-i18n="subtitle">選擇用 Claude 帳號的週額度或 API 金鑰，星河就能跟你聊天囉！</p>
       </div>
     </header>
 
     <div class="cols">
     <section>
+    <!-- 聊天用的額度：Claude 帳號（訂閱的週額度）或 API 金鑰 -->
+    <label data-i18n="billing">聊天用的額度</label>
+    <div class="seg billing" id="billing">
+      <button type="button" data-v="account" data-i18n="billingAccount">Claude 帳號（週額度）</button>
+      <button type="button" data-v="api" data-i18n="billingApi">API 金鑰</button>
+    </div>
+    <p class="note" id="billing-note"></p>
+
     <div id="steps">
       <ol class="steps">
         <li data-i18n="step1">按「打開 Claude Console」，登入你的帳號</li>
@@ -27,7 +35,7 @@
       <p class="tip" data-i18n="tip">找不到這個視窗的話：對星河按右鍵 →「設定…」，或按螢幕最上面選單列的星星 →「設定…」</p>
     </div>
 
-    <label for="key" data-i18n="apiKey">API 金鑰</label>
+    <label for="key" id="key-label">API 金鑰</label>
     <div class="key-row">
       <input id="key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
       <button id="toggle" type="button" class="small">顯示</button>
@@ -94,7 +102,7 @@
 
     <h2 class="gap" data-i18n="watchTitle">讓星河看你在做什麼</h2>
     <select id="watch"></select>
-    <p class="note" data-i18n="watchNote">星河會偶爾偷看一眼螢幕，看到有趣或想關心的事才說話。你在輸入密碼、登入、付款的畫面時不會看；截圖只用來看一眼，不會存檔。用 API 計費，「偶爾看」一天大約 1 美元。</p>
+    <p class="note" data-i18n="watchNote">星河會偶爾偷看一眼螢幕，看到有趣或想關心的事才說話。你在輸入密碼、登入、付款的畫面時不會看；截圖只用來看一眼，不會存檔。用你選的額度：Claude 帳號會用到週額度；API 的話「偶爾看」一天大約 1 美元。</p>
     <div class="status-row">
       <span id="screen-status"></span>
       <button id="screen-open" type="button" class="small" hidden data-i18n="screenOpen">打開螢幕錄製設定</button>

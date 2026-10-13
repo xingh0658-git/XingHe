@@ -337,6 +337,9 @@ const ERROR_LINES = {
   cancelled: '（停下手邊的事）好，星河先停下來了。',
   workDone: '（擦擦汗）我已經在電腦上動過手了，可是回報的時候出了點狀況…爸爸先看一下電腦，不用再說一次喔。',
   maxLoginNoKey: '（拉拉爸爸的衣角）爸爸還沒給我 API 金鑰，也還沒登入 Claude…到設定按「登入 Claude」或貼上金鑰，我就能陪你聊天囉。',
+  accountLogin: '（拉拉爸爸的衣角）我還沒登入 Claude 帳號…到設定按「登入 Claude」，登入之後就能用週額度陪你聊天囉。',
+  accountLimit: '（打了個大哈欠）這週的 Claude 額度用完了…可以到設定勾「週額度用完時改用 API 金鑰」，或等額度恢復再找我。',
+  accountMissing: '（四處張望）我找不到 Claude Code…要先安裝 Claude 桌面 App，才能用 Claude 帳號的週額度聊天喔。',
   unknown: '（搔搔頭）發生了一點小狀況…爸爸等一下再試試看好嗎？'
 };
 
@@ -362,6 +365,9 @@ const ERROR_LINES_EN = {
   cancelled: '(stops what he’s doing) Okay, I’ve stopped.',
   workDone: '(wipes sweat) I already did things on the computer, but something went wrong while reporting back… please check the computer, Dad—no need to ask again.',
   maxLoginNoKey: '(tugs Dad’s sleeve) You haven’t given me an API key or signed in to Claude yet… click “Sign in to Claude” or paste a key in Settings, and we can chat!',
+  accountLogin: '(tugs Dad’s sleeve) I’m not signed in to your Claude account yet… click “Sign in to Claude” in Settings, then I can chat using your weekly usage!',
+  accountLimit: '(big yawn) This week’s Claude usage is all used up… tick “When weekly usage runs out, use my API key” in Settings, or come find me when it resets.',
+  accountMissing: '(looks around) I can’t find Claude Code… install the Claude desktop app so I can chat using your Claude account.',
   unknown: '(scratches head) Something went a little wrong… could you try again in a moment, Dad?',
   busyChat: '(perks up ears) Hang on, I’m still thinking about what you said~'
 };
@@ -467,7 +473,10 @@ function loadConfig() {
     speed: c.speed === 'fast' ? 'fast' : 'standard',
     maxTokens: clampTokens(c.maxTokens),
     computer: c.computer !== false,
-    maxFallback: c.maxFallback !== false,
+    // 聊天用的額度：account = Claude 帳號（訂閱的週額度），api = API 金鑰；舊版有金鑰就是 api
+    billing: c.billing === 'api' || c.billing === 'account' ? c.billing : (cleanKey(rawKey) ? 'api' : 'account'),
+    maxFallback: c.maxFallback !== false,   // 用 API 時：API 額度用完改用 Claude 帳號
+    apiFallback: c.apiFallback !== false,   // 用 Claude 帳號時：週額度用完改用 API 金鑰
     watch: WATCH_MODES.some((m) => m.id === c.watch) ? c.watch : 'sometimes',
     wander: c.wander !== false,
     hotkey: c.hotkey === '' ? '' : ((h) => (h && !SYSTEM_HOTKEYS.has(h) ? h : DEFAULT_HOTKEY))(normalizeHotkey(c.hotkey))
@@ -1015,9 +1024,9 @@ function effectiveMaxTokens() {
   return Math.min(MAX_TOKENS, Math.max(config.maxTokens, EFFORT_MIN_TOKENS[config.effort] || MIN_TOKENS));
 }
 
-async function askClaude(history, ctx) {
+async function askClaude(history, ctx, opts = {}) {
   const flags = { effort: true, fast: fastAllowed() };
-  const tools = computerReady() ? [COMPUTER_TOOL, FIND_SESSIONS_TOOL, CONTINUE_SESSION_TOOL] : null;
+  const tools = computerReady() && !opts.noTools ? [COMPUTER_TOOL, FIND_SESSIONS_TOOL, CONTINUE_SESSION_TOOL] : null;
   // 同一次對話的每一輪 system 都要一模一樣（思考內容會綁定前面的內容），所以時間只算一次
   const system = personaSystem();
   const maxTokens = effectiveMaxTokens();
@@ -1337,16 +1346,25 @@ async function doComputerTask(task, ctx, target = null, label = task) {
     if (target && r.sessionId && SESSION_ID.test(r.sessionId)) saveSessionLink(target.id, r.sessionId);
     return r;
   };
-  let res = remember(await claudeCode.run({ ...common, apiKey: config.apiKey || null, fast: fastAllowed() && !!config.apiKey }));
-  if (!res.ok && config.apiKey && res.kind === 'credit' && config.maxFallback) {
-    log('API 額度用完了，改用 Claude 帳號做事');
-    // 做到一半才用完的話，告訴 Claude 帳號 已經做了哪些，避免重複（例如訊息傳兩次）
-    const done = res.steps || [];
-    const prompt = done.length
+  // 做到一半換額度的話，告訴接手的已經做了哪些，避免重複（例如訊息傳兩次）
+  const continuePrompt = (r) => {
+    const done = r.steps || [];
+    return done.length
       ? `${task}\n\n【注意】剛剛已經做過下面這些步驟，但還沒做完就中斷了：\n${done.map((x) => `‧${x}`).join('\n')}\n` +
         '請先檢查電腦現在的狀態，不要重複已經完成的步驟（特別是傳訊息、寄信、寫入或搬移檔案），只完成還沒做完的部分。'
       : task;
-    res = remember(await claudeCode.run({ ...common, prompt, apiKey: null, fast: false }));
+  };
+  const viaApi = !!config.apiKey && (useAccount() ? apiFirst() : true);
+  let res = remember(await claudeCode.run({ ...common, apiKey: viaApi ? config.apiKey : null, fast: viaApi && fastAllowed() }));
+  if (!res.ok && !viaApi && useAccount() && res.kind === 'limit') {
+    markAccountLimited(res.text);
+    if (apiBackup()) {
+      log('改用 API 做事');
+      res = remember(await claudeCode.run({ ...common, prompt: continuePrompt(res), apiKey: config.apiKey, fast: fastAllowed() }));
+    }
+  } else if (!res.ok && viaApi && !useAccount() && res.kind === 'credit' && config.maxFallback) {
+    log('API 額度用完了，改用 Claude 帳號做事');
+    res = remember(await claudeCode.run({ ...common, prompt: continuePrompt(res), apiKey: null, fast: false }));
   }
   return res;
 }
@@ -1403,12 +1421,31 @@ async function chatViaClaudeCode(history, text, ctx, opts = {}) {
   throw new XingheError('unknown', 0, res.text);
 }
 
-// 能不能聊天：有 API 金鑰，或沒有金鑰但登入了 Claude 帳號
-async function canChat() {
-  if (config.apiKey) return true;
-  if (!config.maxFallback) return false;
+// ───────── 聊天用的額度：Claude 帳號（週額度）或 API 金鑰 ─────────
+const useAccount = () => config.billing === 'account';
+let accountLimitedUntil = 0;   // Claude 帳號的額度用完了：這段時間先直接用 API（有開的話），不用每次都先撞一次
+const accountOut = () => Date.now() < accountLimitedUntil;
+// 用 Claude 帳號、週額度用完時可以改用 API
+const apiBackup = () => useAccount() && config.apiFallback && !!config.apiKey;
+// 現在要不要直接用 API：選 API，或選帳號但額度用完了、而且可以改用 API
+const apiFirst = () => !useAccount() ? !!config.apiKey : accountOut() && apiBackup();
+function markAccountLimited(message) {
+  // 真的是用量用完：先休息 30 分鐘；只是一時太多人用（429）：2 分鐘後再試
+  const usedUp = /hit your .*limit|usage limit|limit reached|out of usage|weekly|5-hour|session limit/i.test(String(message || ''));
+  accountLimitedUntil = Date.now() + (usedUp ? 30 : 2) * 60 * 1000;
+  log(usedUp ? 'Claude 帳號的額度用完了' : 'Claude 帳號暫時太忙', apiBackup() ? '，先改用 API' : '');
+}
+
+async function claudeLoggedIn() {
   const bin = claudeCode.findClaude();
   return !!bin && (await claudeCode.authStatus(bin)).loggedIn;
+}
+
+// 能不能聊天：選帳號就要登入（或可以改用 API）；選 API 就要有金鑰（或可以改用帳號）
+async function canChat() {
+  if (useAccount()) return claudeLoggedIn();
+  if (config.apiKey) return true;
+  return config.maxFallback && claudeLoggedIn();
 }
 
 let currentJob = null;   // 正在進行的聊天或工作（可以停止）
@@ -1475,7 +1512,40 @@ async function handleChat(rawText, rawImages = []) {
   try {
     history = loadHistory();
     let result;
-    if (!config.apiKey) {
+    // 已經在電腦上做過的事：換另一種額度時只負責回報，不要再做一次
+    const doneNote = () => `【注意】爸爸交代的事剛剛已經在電腦上處理過了，絕對不要再做一次，只要用星河的口吻簡短告訴爸爸結果：\n${
+      ctx.workRuns.map((w) => `‧${w.task}：${w.ok ? '已完成' : '沒有完成'}（${w.text}）`).join('\n')}`;
+    if (useAccount() && apiFirst()) {
+      // 選了 Claude 帳號，可是週額度用完了：先用 API
+      result = await askClaude(buildMessages([...history, userMsg]), ctx);
+    } else if (useAccount()) {
+      try {
+        result = await chatViaClaudeCode(history, text, ctx, { images: names });
+      } catch (e) {
+        if (!(e instanceof XingheError)) throw e;
+        if (e.kind === 'maxLimit') markAccountLimited(e.message);
+        if (e.kind === 'maxLimit' && apiBackup()) {
+          log('改用 API 聊天');
+          const msgs = buildMessages([...history, userMsg]);
+          if (worked()) {
+            const last = msgs[msgs.length - 1];
+            const note = { type: 'text', text: doneNote() };
+            last.content = Array.isArray(last.content) ? [...last.content, note] : `${last.content}\n\n${note.text}`;
+            result = await askClaude(msgs, ctx, { noTools: true });
+          } else {
+            result = await askClaude(msgs, ctx);
+          }
+        } else if (e.kind === 'maxLogin') {
+          throw new XingheError('accountLogin', 0, e.message);
+        } else if (e.kind === 'maxMissing') {
+          throw new XingheError('accountMissing', 0, e.message);
+        } else if (e.kind === 'maxLimit') {
+          throw new XingheError('accountLimit', 0, e.message);
+        } else {
+          throw e;
+        }
+      }
+    } else if (!config.apiKey) {
       // 沒有 API 金鑰：有登入 Claude 帳號 的話就用 Claude 帳號，不然請爸爸到設定貼金鑰或登入 Claude
       if (!config.maxFallback) throw new XingheError('noKey');
       try {
@@ -1494,11 +1564,10 @@ async function handleChat(rawText, rawImages = []) {
         log('API 額度用完了，改用 Claude 帳號聊天');
         if (worked()) {
           // 事情已經在電腦上做過了：Claude 帳號 只負責把結果告訴爸爸，不再動手
-          const done = ctx.workRuns.map((w) => `‧${w.task}：${w.ok ? '已完成' : '沒有完成'}（${w.text}）`).join('\n');
           result = await chatViaClaudeCode(history, text, ctx, {
             images: names,
             allowTools: false,
-            doneNote: `【注意】爸爸交代的事剛剛已經在電腦上處理過了，絕對不要再做一次，只要用星河的口吻簡短告訴爸爸結果：\n${done}`
+            doneNote: doneNote()
           });
         } else {
           result = await chatViaClaudeCode(history, text, ctx, { images: names });
@@ -1520,7 +1589,7 @@ async function handleChat(rawText, rawImages = []) {
       else if (ctx.didWork) line = errLine('workDone');
       return { ok: false, noRefill: true, text: line };
     }
-    if (kind === 'auth' || kind === 'model' || kind === 'noKey' || kind === 'maxLoginNoKey') openSettings();
+    if (['auth', 'model', 'noKey', 'maxLoginNoKey', 'accountLogin', 'accountMissing'].includes(kind)) openSettings();
     if (kind === 'noKey') return { ok: false, text: L().misc.noKey };
     return { ok: false, text: errLine(kind) };
   } finally {
@@ -1549,6 +1618,23 @@ function memoryPrompt(oldSummary, chunk) {
 // 用 API（便宜的模型）整理；API 額度用完或沒有金鑰時，改用 Claude 帳號
 async function summarizeMemory(oldSummary, chunk) {
   const prompt = memoryPrompt(oldSummary, chunk);
+  const viaAccount = async () => {
+    const bin = claudeCode.findClaude();
+    if (!bin || !(await claudeCode.authStatus(bin)).loggedIn) throw new XingheError('maxLogin');
+    const res = await claudeCode.run({
+      bin, prompt, appendSystemPrompt: MEMORY_RULES, model: MEMORY_MODEL, apiKey: null, fast: false, allowTools: false
+    });
+    if (res.ok && res.text) return res.text;
+    throw new XingheError(res.kind || 'unknown', 0, res.text);
+  };
+  if (useAccount() && !apiFirst()) {
+    try {
+      return await viaAccount();
+    } catch (e) {
+      if (!(e instanceof XingheError) || e.kind !== 'limit' || !apiBackup()) throw e;
+      markAccountLimited(e.message);
+    }
+  }
   if (config.apiKey) {
     const r = await postWithFallbacks({
       model: MEMORY_MODEL,
@@ -1564,17 +1650,11 @@ async function summarizeMemory(oldSummary, chunk) {
       throw new XingheError('empty', r.status, `memory stop_reason=${r.data && r.data.stop_reason}`);
     }
     const kind = classifyError(r);
-    if (kind !== 'credit' || !config.maxFallback) throw new XingheError(kind, r.status, r.message);
-  } else if (!config.maxFallback) {
+    if (kind !== 'credit' || useAccount() || !config.maxFallback) throw new XingheError(kind, r.status, r.message);
+  } else if (!config.maxFallback || useAccount()) {
     throw new XingheError('noKey');
   }
-  const bin = claudeCode.findClaude();
-  if (!bin || !(await claudeCode.authStatus(bin)).loggedIn) throw new XingheError('maxLogin');
-  const res = await claudeCode.run({
-    bin, prompt, appendSystemPrompt: MEMORY_RULES, model: MEMORY_MODEL, apiKey: null, fast: false, allowTools: false
-  });
-  if (res.ok && res.text) return res.text;
-  throw new XingheError(res.kind || 'unknown', 0, res.text);
+  return viaAccount();
 }
 
 // 對話超過 60 則時，把最近 30 則以外的舊對話整理進記憶（在背景做，不影響聊天）
@@ -2175,13 +2255,13 @@ function registerIpc() {
       say(pending.say);
       return;
     }
-    if (config.apiKey) {
+    if (!useAccount() && config.apiKey) {
       say(lines.pick(L().hello));
       return;
     }
-    // 沒有金鑰：登入了 Claude 帳號 的話一樣可以聊天
+    // 用 Claude 帳號，或沒有金鑰：登入了 Claude 帳號 的話一樣可以聊天
     canChat().then((ok) => {
-      if (!sleeping) say(ok ? lines.pick(L().hello) : L().misc.noKey);
+      if (!sleeping) say(ok ? lines.pick(L().hello) : useAccount() ? L().misc.needLogin : L().misc.noKey);
     });
   });
 
@@ -2300,7 +2380,9 @@ function registerIpc() {
       maxTokens: config.maxTokens,
       tokenLimits: { min: MIN_TOKENS, max: MAX_TOKENS },
       computer: config.computer,
+      billing: config.billing,
       maxFallback: config.maxFallback,
+      apiFallback: config.apiFallback,
       scale: config.scale,
       scaleLimits: { min: SCALE_MIN, max: SCALE_MAX },
       fullscreenHide: config.fullscreenHide,
@@ -2381,7 +2463,8 @@ function registerIpc() {
     const apiKey = cleanKey(data && data.apiKey);
     const model = MODELS.some((m) => m.id === (data && data.model)) ? data.model : DEFAULT_MODEL;
     const maxFallback = !(data && data.maxFallback === false);
-    if (!apiKey && !maxFallback) return { ok: false, message: ui('needKey') };
+    const billing = data && (data.billing === 'api' || data.billing === 'account') ? data.billing : config.billing;
+    if (billing === 'api' && !apiKey) return { ok: false, message: ui('needKey') };
     if (apiKey && !/^[\x21-\x7e]+$/.test(apiKey)) {
       return { ok: false, message: ui('badKey') };
     }
@@ -2409,6 +2492,10 @@ function registerIpc() {
     config.maxTokens = clampTokens(data && data.maxTokens);
     config.computer = !(data && data.computer === false);
     config.maxFallback = maxFallback;
+    config.apiFallback = !(data && data.apiFallback === false);
+    const billingChanged = billing !== config.billing;
+    config.billing = billing;
+    accountLimitedUntil = 0;   // 換了設定：Claude 帳號再試一次
     config.scale = clampScale(data && data.scale);
     config.fullscreenHide = FULLSCREEN_MODES.some((m) => m.id === (data && data.fullscreenHide)) ? data.fullscreenHide : 'video';
     config.watch = WATCH_MODES.some((m) => m.id === (data && data.watch)) ? data.watch : 'sometimes';
@@ -2424,7 +2511,8 @@ function registerIpc() {
       return { ok: false, message: ui('saveFailed') };
     }
     refreshTrayMenu();   // 選單上的快捷鍵提示
-    if (keyChanged && apiKey) say(L().misc.keySaved);
+    if (billingChanged) say(billing === 'account' ? L().misc.billingAccount : L().misc.billingApi);
+    else if (keyChanged && apiKey && billing === 'api') say(L().misc.keySaved);
     setTimeout(() => {
       if (settingsWin && !settingsWin.isDestroyed()) settingsWin.close();
     }, 900);
@@ -2623,6 +2711,26 @@ async function askGlance(shot, front) {
   const text = glancePrompt(front);
   const image = { type: 'image', source: { type: 'base64', media_type: shot.type, data: shot.data } };
   let out = '';
+  const viaAccount = async () => {
+    const bin = claudeCode.findClaude();
+    if (!bin || !(await claudeCode.authStatus(bin)).loggedIn) return null;
+    const res = await claudeCode.run({
+      bin, prompt: text, appendSystemPrompt: system, model: config.model, effort: 'low',
+      apiKey: null, fast: false, allowTools: false, images: [image], lang: config.lang
+    });
+    if (!res.ok) throw new XingheError(res.kind || 'unknown', 0, res.text);
+    return res.text;
+  };
+  if (useAccount() && !apiFirst()) {
+    try {
+      out = (await viaAccount()) || '';
+      if (!out) return null;
+      return parseGlance(out);
+    } catch (e) {
+      if (!(e instanceof XingheError) || e.kind !== 'limit' || !apiBackup()) throw e;
+      markAccountLimited(e.message);
+    }
+  }
   if (config.apiKey) {
     const r = await postWithFallbacks({
       model: config.model || DEFAULT_MODEL,
@@ -2637,21 +2745,15 @@ async function askGlance(shot, front) {
       if (!out) return null;
     } else {
       const kind = classifyError(r);
-      if (kind !== 'credit' || !config.maxFallback) throw new XingheError(kind, r.status, r.message);
+      if (kind !== 'credit' || useAccount() || !config.maxFallback) throw new XingheError(kind, r.status, r.message);
     }
-  } else if (!config.maxFallback) {
+  } else if (!config.maxFallback || useAccount()) {
     return null;
   }
   if (!out) {
-    // 沒有金鑰或額度用完：用 Claude 帳號看
-    const bin = claudeCode.findClaude();
-    if (!bin || !(await claudeCode.authStatus(bin)).loggedIn) return null;
-    const res = await claudeCode.run({
-      bin, prompt: text, appendSystemPrompt: system, model: config.model, effort: 'low',
-      apiKey: null, fast: false, allowTools: false, images: [image], lang: config.lang
-    });
-    if (!res.ok) throw new XingheError(res.kind || 'unknown', 0, res.text);
-    out = res.text;
+    // 沒有金鑰或 API 額度用完：用 Claude 帳號看
+    out = (await viaAccount()) || '';
+    if (!out) return null;
   }
   return parseGlance(out);
 }
@@ -2775,7 +2877,7 @@ function start() {
     markUserShown();
   }
   // 第一次沒有金鑰（也沒登入 Claude 帳號）時，自動打開設定
-  if (!config.apiKey) {
+  if (useAccount() || !config.apiKey) {
     canChat().then((ok) => {
       if (!ok) setTimeout(openSettings, 1500);
     });
