@@ -83,6 +83,15 @@
     </div>
     <label for="fs-hide" data-i18n="fsHide">全螢幕時自動隱藏星河</label>
     <select id="fs-hide"></select>
+    <label class="check"><input type="checkbox" id="wander"> <span data-i18n="wander">讓星河自己在桌面上散步</span></label>
+
+    <h2 class="gap" data-i18n="watchTitle">讓星河看你在做什麼</h2>
+    <select id="watch"></select>
+    <p class="note" data-i18n="watchNote">星河會偶爾偷看一眼螢幕，看到有趣或想關心的事才說話。你在輸入密碼、登入、付款的畫面時不會看；截圖只用來看一眼，不會存檔。用 API 計費，「偶爾看」一天大約 1 美元。</p>
+    <div class="status-row">
+      <span id="screen-status"></span>
+      <button id="screen-open" type="button" class="small" hidden data-i18n="screenOpen">打開螢幕錄製設定</button>
+    </div>
 
     <h2 class="gap" data-i18n="computerTitle">電腦控制與 Claude 帳號</h2>
     <label class="check"><input type="checkbox" id="computer"> <span data-i18n="computer">讓星河幫我操作電腦（完全自動，不會先問你）</span></label>

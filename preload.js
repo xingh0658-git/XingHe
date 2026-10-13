@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('xinghe', {
   onWorking: (cb) => ipcRenderer.on('pet:working', (_e, w) => cb(w || {})),
   onBusy: (cb) => ipcRenderer.on('pet:busy', () => cb()),
   onLayout: (cb) => ipcRenderer.on('pet:layout', (_e, v) => cb(v || null)),
+  onWalk: (cb) => ipcRenderer.on('pet:walk', (_e, w) => cb(w || {})),
+  uiState: (s) => ipcRenderer.send('pet:ui-state', { chat: !!(s && s.chat), bubble: !!(s && s.bubble) }),
   onLang: (cb) => ipcRenderer.on('pet:lang', (_e, v) => cb(String(v || 'zh'))),
   onReply: (cb) => ipcRenderer.on('pet:reply', (_e, r) => cb(r || {}))
 });

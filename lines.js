@@ -81,7 +81,8 @@ const misc = {
   cleared: '（眨眨眼）咦…我們剛剛在聊什麼呀？沒關係，重新開始也很好！',
   quietOn: '（比了個噓的手勢）好，星河會安安靜靜陪在旁邊。',
   quietOff: '（耳朵豎起來）星河可以說話了嗎？太好了～',
-  summoned: '（從星星裡蹦出來）星河在這裡！爸爸找我嗎？'
+  summoned: '（從星星裡蹦出來）星河在這裡！爸爸找我嗎？',
+  screenAsk: '（指著螢幕上方）爸爸，想讓我看你在做什麼的話，要到「系統設定 → 隱私權與安全性 → 螢幕錄製」把「星河」打開，然後重新打開我一次喔～'
 };
 
 // ───────── 英文版（設定的語言選 English 時）─────────
@@ -153,7 +154,8 @@ const en = {
     cleared: '(blinks) Huh… what were we just talking about? That’s okay—starting fresh is nice too!',
     quietOn: '(puts a finger to lips) Okay, I’ll stay quietly by your side.',
     quietOff: '(ears perk up) I can talk again? Yay~',
-    summoned: '(pops out of the stars) XingHe’s here! Were you looking for me, Dad?'
+    summoned: '(pops out of the stars) XingHe’s here! Were you looking for me, Dad?',
+    screenAsk: '(points at the top of the screen) Dad, if you want me to see what you’re doing, turn on “XingHe” under System Settings → Privacy & Security → Screen Recording, then reopen me once~'
   }
 };
 

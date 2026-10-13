@@ -17,6 +17,10 @@
   const scaleRange = $('#scale');
   const scaleVal = $('#scale-val');
   const fsHideSelect = $('#fs-hide');
+  const watchSelect = $('#watch');
+  const wanderBox = $('#wander');
+  const screenStatus = $('#screen-status');
+  const screenOpenBtn = $('#screen-open');
   const maxBox = $('#max-fallback');
   const claudeStatus = $('#claude-status');
   const loginBtn = $('#max-login');
@@ -51,6 +55,13 @@
       small: '小',
       big: '大',
       fsHide: '全螢幕時自動隱藏星河',
+      wander: '讓星河自己在桌面上散步',
+      watchTitle: '讓星河看你在做什麼',
+      watchNote: '星河會偶爾偷看一眼螢幕，看到有趣或想關心的事才說話。你在輸入密碼、登入、付款的畫面時不會看；截圖只用來看一眼，不會存檔。用 API 計費，「偶爾看」一天大約 1 美元。',
+      screenOpen: '打開螢幕錄製設定',
+      screenOk: '螢幕錄製權限：已允許',
+      screenNo: '還沒有螢幕錄製權限：到「系統設定 → 隱私權與安全性 → 螢幕錄製」打開「星河」，再重新打開星河。',
+      screenOff: '',
       computerTitle: '電腦控制與 Claude 帳號',
       computer: '讓星河幫我操作電腦（完全自動，不會先問你）',
       maxFallback: 'API 額度用完時，改用 Claude 帳號的額度',
@@ -106,6 +117,13 @@
       small: 'S',
       big: 'L',
       fsHide: 'Hide XingHe in full screen',
+      wander: 'Let XingHe stroll around the desktop',
+      watchTitle: 'Let XingHe see what you’re doing',
+      watchNote: 'XingHe peeks at your screen now and then and only speaks when he sees something interesting or worth caring about. He never looks while you’re typing a password, signing in or paying; the screenshot is only glanced at, never saved. Billed through the API: “now and then” costs about US$1 a day.',
+      screenOpen: 'Open Screen Recording settings',
+      screenOk: 'Screen Recording permission: allowed',
+      screenNo: 'Screen Recording isn’t allowed yet: turn on “XingHe” under System Settings → Privacy & Security → Screen Recording, then reopen XingHe.',
+      screenOff: '',
       computerTitle: 'Computer Control & Claude Account',
       computer: 'Let XingHe use my computer (fully automatic — it won’t ask first)',
       maxFallback: 'When API credit runs out, use my Claude account',
@@ -150,7 +168,9 @@
       max: 'Max',
       video: 'When watching videos (browser or player)',
       all: 'When any app is full screen',
-      off: 'Never'
+      off: 'Never',
+      sometimes: 'Now and then (every 10–15 min)',
+      often: 'Often (about every 5 min)'
     }
   };
 
@@ -180,7 +200,7 @@
     document.title = t('docTitle');
     for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
     toggleBtn.textContent = keyInput.type === 'password' ? t('show') : t('hide');
-    for (const select of [modelSelect, effortSelect, fsHideSelect]) {
+    for (const select of [modelSelect, effortSelect, fsHideSelect, watchSelect]) {
       for (const opt of select.options) {
         opt.textContent = (lang !== 'zh' && OPTION_TEXT[lang] && OPTION_TEXT[lang][opt.value]) || opt.dataset.zh || opt.textContent;
       }
@@ -188,9 +208,25 @@
     for (const b of langBox.querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === lang);
     renderSpeed();
     renderStatus();
+    renderScreen();
     showHint(hintState.key, hintState.tone, hintState.raw);
     fit();
   }
+
+  // 螢幕錄製權限：星河要看螢幕才需要
+  let screenAccess = '';
+  function renderScreen() {
+    const need = watchSelect.value !== 'off';
+    const ok = screenAccess === 'granted';
+    screenStatus.textContent = !need ? '' : ok ? t('screenOk') : t('screenNo');
+    screenStatus.classList.toggle('warn', need && !ok);
+    screenOpenBtn.hidden = !need || ok;
+  }
+  watchSelect.addEventListener('change', () => {
+    renderScreen();
+    fit();
+  });
+  screenOpenBtn.addEventListener('click', () => api.openScreenSettings());
 
   // 全形轉半形、去掉空白和看不見的字元
   const cleanKey = (text) => String(text || '').normalize('NFKC').replace(/[\s​-‍⁠﻿]/g, '');
@@ -269,6 +305,7 @@
     fillSelect(modelSelect, data.models);
     fillSelect(effortSelect, data.efforts);
     fillSelect(fsHideSelect, data.fullscreenModes);
+    fillSelect(watchSelect, data.watchModes);
     fastModels = data.fastModels || [];
     fastNoAccess = !!data.fastNoAccess;
     limits = data.tokenLimits || limits;
@@ -290,6 +327,9 @@
     scaleRange.value = String(Math.round((data.scale || 1) * 100));
     showScale();
     fsHideSelect.value = data.fullscreenHide || 'video';
+    watchSelect.value = data.watch || 'sometimes';
+    wanderBox.checked = data.wander !== false;
+    screenAccess = data.screenAccess || '';
     computerBox.checked = data.computer;
     maxBox.checked = data.maxFallback;
     keyInput.value = data.apiKey || '';
@@ -313,7 +353,9 @@
         computer: computerBox.checked,
         maxFallback: maxBox.checked,
         scale: Number(scaleRange.value) / 100,
-        fullscreenHide: fsHideSelect.value
+        fullscreenHide: fsHideSelect.value,
+        watch: watchSelect.value,
+        wander: wanderBox.checked
       });
       if (res && res.ok) {
         showHint('saved', 'ok');

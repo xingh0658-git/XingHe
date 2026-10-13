@@ -293,15 +293,74 @@ body:not(.laid-out) #stage {
     0 0 24px 5px rgba(201, 179, 255, 0.3);
 }
 
-.face img {
+/* 星河本人（會呼吸：整個一起輕輕縮放） */
+.body {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 0 6px rgba(94, 242, 255, 0.35));
+  pointer-events: none;
+  will-change: transform;
+  transition: filter 1.2s ease;
+}
+
+.body img {
   display: block;
+  position: absolute;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.body img.base {
+  left: 0;
+  top: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 0 6px rgba(94, 242, 255, 0.35));
-  pointer-events: none;
-  -webkit-user-drag: none;
-  transition: filter 1.2s ease;
+}
+
+/* 眼睛：蓋在原圖眼睛的位置（原圖 1024px 裡的 430,420 起、370×200） */
+.body img.eyes {
+  left: 41.99%;
+  top: 41.02%;
+  width: 36.13%;
+  height: 19.53%;
+  opacity: 0;
+  transition: opacity 0.05s linear;
+}
+
+/* 大耳朵：原圖 140,60 起、200×400，繞著耳根轉 */
+.body img.ear {
+  left: 13.67%;
+  top: 5.86%;
+  width: 19.53%;
+  height: 39.06%;
+  transform-origin: 90% 67.5%;
+  will-change: transform;
+}
+
+/* 臉紅 */
+.blush i {
+  position: absolute;
+  top: 53%;
+  width: 10%;
+  height: 5.5%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(255, 120, 150, 0.8), rgba(255, 120, 150, 0) 72%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.blush i:first-child {
+  left: 37.5%;
+}
+
+.blush i:last-child {
+  left: 70%;
+}
+
+.blush.on i {
+  opacity: 1;
 }
 
 /* 會隨角度移動的光澤反光 */
@@ -478,7 +537,7 @@ body.sleeping #zzz span {
   100% { opacity: 0; transform: translate(34px, -62px) rotate(12deg); }
 }
 
-body.sleeping .face img {
+body.sleeping .body {
   filter: brightness(0.7) saturate(0.85) drop-shadow(0 0 6px rgba(94, 242, 255, 0.2));
 }
 
@@ -635,4 +694,31 @@ body.paused *::after {
 
 #send:active {
   transform: scale(0.92);
+}
+
+/* ───────── 冒出來的小符號：愛心、問號、音符… ───────── */
+#emotes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 320px;
+  height: 260px;
+  pointer-events: none;
+}
+
+.emote {
+  position: absolute;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.6), 0 0 12px currentColor;
+  opacity: 0;
+  animation: emote-pop 1.6s ease-out forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes emote-pop {
+  0% { opacity: 0; transform: translateY(6px) scale(0.5); }
+  18% { opacity: 1; transform: translateY(-4px) scale(1.2); }
+  100% { opacity: 0; transform: translateY(-38px) scale(1); }
 }

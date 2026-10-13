@@ -349,3 +349,7 @@ label.check input {
 .note.warn {
   color: var(--gold);
 }
+
+.status-row .warn {
+  color: var(--gold);
+}

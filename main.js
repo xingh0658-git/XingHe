@@ -4,7 +4,7 @@
 
 const {
   app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage,
-  shell, clipboard, dialog, powerMonitor, session, systemPreferences
+  shell, clipboard, dialog, powerMonitor, session, systemPreferences, desktopCapturer
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -61,7 +61,7 @@ const ENGLISH_RULES = [
 ].join('\n');
 const english = () => config.lang === 'en';
 // 系統提示：角色設定 + 記憶 +（英文模式）+ 現在時間（時間一定放最後）
-const personaSystem = () => `${SYSTEM_PROMPT}${memoryBlock()}${english() ? `\n\n${ENGLISH_RULES}` : ''}\n\n現在時間：${taiwanNow()}`;
+const personaSystem = () => `${SYSTEM_PROMPT}${memoryBlock()}${lastSeenBlock()}${english() ? `\n\n${ENGLISH_RULES}` : ''}\n\n現在時間：${taiwanNow()}`;
 
 // ───────── 常數 ─────────
 const API_URL = 'https://api.anthropic.com/v1/messages';
@@ -93,6 +93,58 @@ const IMAGE_MAX_BYTES = 3840 * 1024;      // 每張圖片最大約 3.75MB（轉�
 const IMAGE_SEND_RECENT = 6;              // 最近 6 則對話裡的圖片真的送給星河看，再舊的只說「傳過圖片」
 const PICK_MAX_BYTES = 60 * 1024 * 1024;  // 選圖片時，原始檔最大 60MB
 const RESUME_TIMEOUT_MS = 45 * 60 * 1000; // 接手爸爸和 Claude 的對話：最多做 45 分鐘
+// 偷看螢幕：看爸爸在做什麼（只看一眼，截圖不存檔、不留在對話裡）
+const WATCH_MODES = [
+  { id: 'off', label: '不看' },
+  { id: 'sometimes', label: '偶爾看（約每 10～15 分鐘）' },
+  { id: 'often', label: '常常看（約每 5 分鐘）' }
+];
+const GLANCE_DELAY = { sometimes: [10, 15], often: [4, 6] };   // 幾分鐘看一次
+const GLANCE_MAX_EDGE = 1280;                                  // 截圖最長邊：看得清楚又省錢
+// 這些 App 在最前面時不看：密碼管理員、系統設定、錢包、銀行
+const SENSITIVE_APP = /1password|agilebits|bitwarden|lastpass|dashlane|keeper|enpass|nordpass|keychain|com\.apple\.passwords|systempreferences|wallet|passbook|bank|banking|paypal/i;
+// 視窗標題像是登入、付款、驗證碼、個資、無痕視窗時不看
+const SENSITIVE_TITLE = /密碼|密码|password|passcode|passphrase|登入|登录|sign.?in|log.?in|驗證|验证|verif|otp|one.?time|2fa|two.?factor|付款|支付|結帳|结账|checkout|payment|billing|信用卡|credit card|debit|卡號|卡号|銀行|银行|bank|paypal|stripe|錢包|钱包|wallet|手機號|手机号|電話號碼|电话号码|phone number|身分證|身份證|身份证|ssn|social security|passport|護照|护照|無痕|无痕|incognito|private browsing|隱私瀏覽/i;
+// 問 macOS：最前面的 App、它的視窗標題，還有現在是不是在輸入密碼（安全輸入模式）
+const FRONT_JXA = `function run() {
+  ObjC.import('AppKit'); ObjC.import('Carbon'); ObjC.import('CoreGraphics');
+  const fa = $.NSWorkspace.sharedWorkspace.frontmostApplication;
+  const out = { app: '', bundle: '', title: '', secure: !!$.IsSecureEventInputEnabled() };
+  if (!fa.isNil()) {
+    out.app = String(ObjC.unwrap(fa.localizedName) || '');
+    out.bundle = String(ObjC.unwrap(fa.bundleIdentifier) || '');
+    const pid = fa.processIdentifier;
+    const list = $.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly | $.kCGWindowListExcludeDesktopElements, $.kCGNullWindowID);
+    const n = list.count;
+    for (let i = 0; i < n; i += 1) {
+      const w = ObjC.deepUnwrap(list.objectAtIndex(i)) || {};
+      if (w.kCGWindowOwnerPID === pid && w.kCGWindowLayer === 0) { out.title = String(w.kCGWindowName || ''); break; }
+    }
+  }
+  return JSON.stringify(out);
+}`;
+const GLANCE_RULES = [
+  '【偷看螢幕】你剛剛偷偷看了一眼爸爸的螢幕（附上截圖），想知道爸爸在做什麼，就像平常陪在旁邊的家人。',
+  '- 先用一句話描述爸爸在做什麼（給自己記的，30 字以內；不要寫任何名字、數字、帳號、網址、訊息內容）。',
+  '- 再決定要不要跟爸爸說話。大部分時候不用說（十次大概說兩三次）；只有看到有趣的、想關心的，或爸爸可能需要提醒的事（例如看影片看很久、很晚還在工作、好像卡住很久、在做跟星河有關的事）才說一句。',
+  '- 說的話要自然、簡短（一到兩句、40 字以內），像平常聊天，可以用括號寫小動作。不要每次都問問題，不要說教。',
+  '- 不要重複最近說過或看過的事。',
+  '- 畫面上如果有密碼、登入、付款、電話號碼、身分證、訊息內容或其他隱私的東西，當作沒看到：描述寫「略過」，也不要說話。',
+  '- 回覆只能是下面兩行，不要多寫別的：',
+  '看到：（一句話）',
+  '說：（要說的話；不說就寫 略過）'
+].join('\n');
+const GLANCE_RULES_EN = [
+  '[Peeking at the screen] You just took a quick peek at Dad’s screen (screenshot attached) to see what he is doing, like family sitting next to him.',
+  '- First describe in one short sentence what Dad is doing (a note to yourself, under 20 words; never include names, numbers, accounts, URLs or message contents).',
+  '- Then decide whether to say anything. Most of the time stay quiet (speak maybe 2–3 times out of 10); only speak when you see something interesting, something to care about, or something Dad may need a reminder about (watching videos for a long time, working late, stuck on the same thing, doing something XingHe-related).',
+  '- Keep it natural and short (one or two sentences, under 30 words), with little actions in parentheses if you like. Don’t ask a question every time, don’t lecture.',
+  '- Don’t repeat things you recently said or saw.',
+  '- If the screen shows passwords, logins, payments, phone numbers, IDs, message contents or anything private, treat it as unseen: write “skip” for the description and say nothing.',
+  '- Reply with exactly these two lines and nothing else:',
+  'Seen: (one sentence)',
+  'Say: (what to say, or skip)'
+].join('\n');
 const IMAGE_EXT = { 'image/webp': 'webp', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif' };
 const IMAGE_MEDIA = { webp: 'image/webp', jpg: 'image/jpeg', png: 'image/png', gif: 'image/gif' };
 // 選檔案時可以選的格式；畫面能直接打開的照原樣讀，HEIC、TIFF 這類先請 macOS 轉成圖片
@@ -339,6 +391,14 @@ let previewAnchor = null;     // 預覽大小之前星河的位置（取消時�
 let fullscreenCheckSeq = 0;
 let compacting = false;       // 正在把舊對話整理成記憶
 let compactFailedAt = 0;
+let glanceTimer = null;       // 偷看螢幕的計時器
+let glancing = false;
+let screenAsked = false;      // 這次啟動有沒有請爸爸開螢幕錄製權限了
+const recentSeen = [];        // 最近偷看到的事（只留在記憶體裡）
+let lastSaidAt = 0;           // 星河最後一次說話（偷看螢幕時不要太吵）
+let uiState = { chat: false, bubble: false };   // 畫面上聊天框、泡泡開著沒有
+let wanderTimer = null;       // 散步的計時器
+let wanderTween = null;
 
 const userDir = () => app.getPath('userData');
 const configPath = () => path.join(userDir(), 'config.json');
@@ -390,7 +450,9 @@ function loadConfig() {
     speed: c.speed === 'fast' ? 'fast' : 'standard',
     maxTokens: clampTokens(c.maxTokens),
     computer: c.computer !== false,
-    maxFallback: c.maxFallback !== false
+    maxFallback: c.maxFallback !== false,
+    watch: WATCH_MODES.some((m) => m.id === c.watch) ? c.watch : 'sometimes',
+    wander: c.wander !== false
   };
   if (rawKey && config.apiKey !== rawKey) saveConfig();   // 把清理過的金鑰存回去
   try {
@@ -436,7 +498,7 @@ function loadHistory() {
   const list = readJSON(historyPath(), []);
   if (!Array.isArray(list)) return [];
   return list.filter((m) => m && (m.role === 'user' || m.role === 'assistant') &&
-    typeof m.content === 'string' && (m.content.trim() || imagesOf(m).length));
+    typeof m.content === 'string' && (m.content.trim() || imagesOf(m).length || isGlance(m)));
 }
 
 function saveHistory(list) {
@@ -514,7 +576,18 @@ function imageNote(n) {
   return `（爸爸傳了 ${n} 張圖片）`;
 }
 
+// 星河偷看螢幕時記下的一句話（記在對話裡，之後聊天才接得上）
+const isGlance = (m) => m.role === 'user' && m.kind === 'glance' && typeof m.seen === 'string' && !!m.seen.trim();
+const glanceText = (m) => (english() ? `(XingHe peeked at Dad’s screen and saw: ${m.seen})` : `（星河瞄了一眼爸爸的螢幕，看到：${m.seen}）`);
+
+// 對話紀錄裡的一行（給 Claude Code 和整理記憶用）
+function transcriptLine(m) {
+  if (isGlance(m)) return glanceText(m);
+  return `${m.role === 'user' ? '爸爸' : '星河'}：${shorten(textWithImages(m), 1500)}`;
+}
+
 function textWithImages(m) {
+  if (isGlance(m)) return glanceText(m);
   const n = imagesOf(m).length;
   return n ? [m.content.trim(), imageNote(n)].filter(Boolean).join(' ') : m.content;
 }
@@ -1195,7 +1268,7 @@ async function chatViaClaudeCode(history, text, ctx, opts = {}) {
   if (ctx.signal.aborted) throw new XingheError('cancelled', 0, 'cancelled');
   if (!status.loggedIn) throw new XingheError('maxLogin', 0, 'Claude Code not logged in');
   // 對話太長的話只留最近的部分（每則最多 1500 字，全部最多 60000 字）
-  const items = recentHistory(history).map((m) => `${m.role === 'user' ? '爸爸' : '星河'}：${shorten(textWithImages(m), 1500)}`);
+  const items = recentHistory(history).map(transcriptLine);
   let recent = '';
   for (let i = items.length - 1; i >= 0; i -= 1) {
     if (recent.length + items[i].length > 60000) break;
@@ -1292,6 +1365,7 @@ async function handleChat(rawText, rawImages = []) {
     // 等待回覆時如果清除了記憶，這一輪也不記（說好要全部忘記）
     if (generation !== historyGeneration) return;
     const now = new Date().toISOString();
+    lastSaidAt = Date.now();
     try {
       // 重新讀一次：等回覆的時候，舊的對話可能已經整理成記憶了
       saveHistory([...loadHistory(), { ...userMsg, time: now }, { role: 'assistant', content: reply, time: now }]);
@@ -1376,7 +1450,7 @@ const MEMORY_RULES = [
 ].join('\n');
 
 function memoryPrompt(oldSummary, chunk) {
-  const transcript = chunk.map((m) => `${m.role === 'user' ? '爸爸' : '星河'}：${shorten(textWithImages(m), 1500)}`).join('\n');
+  const transcript = chunk.map(transcriptLine).join('\n');
   return `【目前的記憶】\n${oldSummary || '（還沒有）'}\n\n【要整理進去的舊對話】\n${transcript}\n\n請輸出合併後的新記憶。`;
 }
 
@@ -1561,6 +1635,7 @@ function send(channel, payload) {
 }
 
 function say(text, kind = 'system') {
+  lastSaidAt = Date.now();
   send('pet:say', { text, kind });
 }
 
@@ -2016,6 +2091,12 @@ function registerIpc() {
     });
   });
 
+  // 畫面告訴主程式：聊天框、泡泡開著沒有（散步和偷看螢幕要避開）
+  ipcMain.on('pet:ui-state', (event, s) => {
+    if (!isFrom(event, petWin)) return;
+    uiState = { chat: !!(s && s.chat), bubble: !!(s && s.bubble) };
+  });
+
   ipcMain.on('pet:set-ignore', (event, ignore) => {
     if (!isFrom(event, petWin)) return;
     setIgnore(!!ignore);
@@ -2130,6 +2211,10 @@ function registerIpc() {
       scaleLimits: { min: SCALE_MIN, max: SCALE_MAX },
       fullscreenHide: config.fullscreenHide,
       fullscreenModes: FULLSCREEN_MODES,
+      watch: config.watch,
+      watchModes: WATCH_MODES,
+      wander: config.wander,
+      screenAccess: screenAccess(),
       lang: config.lang
     };
   });
@@ -2220,6 +2305,9 @@ function registerIpc() {
     config.maxFallback = maxFallback;
     config.scale = clampScale(data && data.scale);
     config.fullscreenHide = FULLSCREEN_MODES.some((m) => m.id === (data && data.fullscreenHide)) ? data.fullscreenHide : 'video';
+    config.watch = WATCH_MODES.some((m) => m.id === (data && data.watch)) ? data.watch : 'sometimes';
+    config.wander = !(data && data.wander === false);
+    scheduleGlance();
     previewScale = null;
     // 用新的大小重新擺好，但不改記住的位置（例如外接螢幕拔掉時，星河只是暫時在別的地方）
     if (previewAnchor) petCenter = previewAnchor;
@@ -2234,6 +2322,13 @@ function registerIpc() {
       if (settingsWin && !settingsWin.isDestroyed()) settingsWin.close();
     }, 900);
     return { ok: true };
+  });
+
+  // 打開 macOS 的「螢幕錄製」設定（星河要看螢幕需要這個權限）
+  ipcMain.handle('settings:open-screen-privacy', (event) => {
+    if (!isFrom(event, settingsWin)) return false;
+    shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+    return true;
   });
 
   ipcMain.on('settings:close', (event) => {
@@ -2314,6 +2409,225 @@ function scheduleCare() {
   }, delay);
 }
 
+// ───────── 偷看螢幕：看爸爸在做什麼 ─────────
+const screenAccess = () => (process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'granted');
+
+// 聊天的時候也讓星河知道最近看到了什麼
+function lastSeenBlock() {
+  if (!recentSeen.length) return '';
+  const items = recentSeen.slice(-3).map((s) => `- ${s.at}：${s.text}`).join('\n');
+  return english()
+    ? `\n\n【What XingHe glimpsed on Dad’s screen recently (quick peeks only)】\n${items}`
+    : `\n\n【星河最近偷瞄螢幕看到爸爸在做的事（只是瞄一眼）】\n${items}`;
+}
+
+function scheduleGlance() {
+  clearTimeout(glanceTimer);
+  glanceTimer = null;
+  const range = GLANCE_DELAY[config.watch];
+  if (!range) return;
+  const minutes = range[0] + Math.random() * (range[1] - range[0]);
+  const ms = Number(process.env.XINGHE_GLANCE_MS) || minutes * 60 * 1000;   // 測試時可以用環境變數縮短
+  glanceTimer = setTimeout(async () => {
+    try {
+      await glance();
+    } catch (e) {
+      log('偷看螢幕失敗：', e && e.kind ? e.kind : '', String((e && e.message) || e).slice(0, 200));
+    }
+    scheduleGlance();
+  }, ms);
+}
+
+function systemIdleSeconds() {
+  try {
+    return powerMonitor.getSystemIdleTime();
+  } catch {
+    return 0;
+  }
+}
+
+// 最前面的 App 和視窗標題；查不到就不看
+function frontWindow() {
+  return new Promise((resolve) => {
+    execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', FRONT_JXA], { timeout: 8000 }, (err, out) => {
+      if (err) return resolve(null);
+      try {
+        resolve(JSON.parse(String(out).trim()));
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+// 這個畫面不能看：在輸入密碼、密碼管理員、付款或登入的頁面
+function sensitiveNow(front) {
+  if (!front) return true;
+  return !!front.secure || SENSITIVE_APP.test(`${front.bundle} ${front.app}`) || SENSITIVE_TITLE.test(front.title || '');
+}
+
+// 第一次：讓 macOS 跳出「星河想要錄製螢幕」的詢問；之後請爸爸去設定裡打開
+async function askScreenAccess() {
+  if (screenAsked) return;
+  screenAsked = true;
+  try {
+    await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } });
+  } catch { /* 忽略 */ }
+  if (screenAccess() === 'granted') return;
+  log('還沒有螢幕錄製權限，請爸爸到系統設定允許');
+  say(L().misc.screenAsk);
+}
+
+// 截一張游標所在螢幕的圖（縮小、JPEG，只放在記憶體裡）
+async function captureScreen() {
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const k = Math.min(1, GLANCE_MAX_EDGE / Math.max(display.size.width, display.size.height));
+  const thumbnailSize = { width: Math.round(display.size.width * k), height: Math.round(display.size.height * k) };
+  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize });
+  const src = sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
+  if (!src || !src.thumbnail || src.thumbnail.isEmpty()) return null;
+  return { type: 'image/jpeg', data: src.thumbnail.toJPEG(70).toString('base64') };
+}
+
+function glancePrompt(front) {
+  const seen = recentSeen.slice(-5).map((s) => `- ${s.at}：${s.text}${s.said ? `（說了：${s.said}）` : ''}`).join('\n');
+  const chat = recentHistory(loadHistory()).slice(-6).map(transcriptLine).join('\n');
+  const where = `${front.app}${front.title ? (english() ? ` — window: ${front.title}` : `，視窗：${front.title}`) : ''}`;
+  return english()
+    ? `Time now: ${taiwanNow()}\nFront app: ${where}\n${seen ? `Recent peeks:\n${seen}\n` : ''}${chat ? `Recent chat:\n${chat}\n` : ''}`
+    : `現在時間：${taiwanNow()}\n最前面的 App：${where}\n${seen ? `最近看過：\n${seen}\n` : ''}${chat ? `最近的對話：\n${chat}\n` : ''}`;
+}
+
+// 把回覆拆成「看到」和「說」
+function parseGlance(raw) {
+  const text = String(raw || '').trim();
+  let seen = (text.match(/^(?:看到|Seen)\s*[:：]\s*(.+)$/im) || [])[1] || '';
+  let said = (text.match(/^(?:說|Say)\s*[:：]\s*([\s\S]+)$/im) || [])[1] || '';
+  if (!seen && !said) said = text;   // 沒照格式：整段當作要說的話
+  const skip = (t) => !t || /^[（(]?(略過|skip|none|nothing)[）)]?[。.]?$/i.test(t.trim());
+  seen = skip(seen) ? '' : shorten(seen, 80);
+  said = said.trim().replace(/^[「"'“]+|[」"'”]+$/g, '').trim();
+  said = skip(said) ? '' : cutText(said, 160);
+  return { seen, said };
+}
+
+async function askGlance(shot, front) {
+  const system = `${SYSTEM_PROMPT}${memoryBlock()}${english() ? `\n\n${ENGLISH_RULES}` : ''}\n\n${english() ? GLANCE_RULES_EN : GLANCE_RULES}`;
+  const text = glancePrompt(front);
+  const image = { type: 'image', source: { type: 'base64', media_type: shot.type, data: shot.data } };
+  let out = '';
+  if (config.apiKey) {
+    const r = await postWithFallbacks({
+      model: config.model || DEFAULT_MODEL,
+      max_tokens: 400,
+      output_config: { effort: 'low' },
+      system,
+      messages: [{ role: 'user', content: [image, { type: 'text', text }] }]
+    }, { effort: true, fast: false });
+    if (r.ok) {
+      const content = Array.isArray(r.data && r.data.content) ? r.data.content : [];
+      out = content.filter((b) => b && b.type === 'text').map((b) => b.text).join('').trim();
+      if (!out) return null;
+    } else {
+      const kind = classifyError(r);
+      if (kind !== 'credit' || !config.maxFallback) throw new XingheError(kind, r.status, r.message);
+    }
+  } else if (!config.maxFallback) {
+    return null;
+  }
+  if (!out) {
+    // 沒有金鑰或額度用完：用 Claude 帳號看
+    const bin = claudeCode.findClaude();
+    if (!bin || !(await claudeCode.authStatus(bin)).loggedIn) return null;
+    const res = await claudeCode.run({
+      bin, prompt: text, appendSystemPrompt: system, model: config.model, effort: 'low',
+      apiKey: null, fast: false, allowTools: false, images: [image], lang: config.lang
+    });
+    if (!res.ok) throw new XingheError(res.kind || 'unknown', 0, res.text);
+    out = res.text;
+  }
+  return parseGlance(out);
+}
+
+async function glance() {
+  if (!GLANCE_DELAY[config.watch] || config.quiet || sleeping || locked || chatBusy || glancing || quitting) return;
+  if (!petAlive() || !petWin.isVisible() || fullscreenHidden || uiState.chat || uiState.bubble) return;   // 正在說話或聊天就不看
+  if (systemIdleSeconds() > 120) return;                  // 爸爸不在電腦前
+  if (Date.now() - lastSaidAt < 2 * 60 * 1000) return;    // 剛說過話，不要太吵
+  if (screenAccess() !== 'granted') {
+    await askScreenAccess();
+    return;
+  }
+  const front = await frontWindow();
+  if (sensitiveNow(front)) {
+    log('這次不看螢幕（在輸入密碼、付款或登入之類的畫面）');
+    return;
+  }
+  glancing = true;
+  const generation = historyGeneration;
+  try {
+    const shot = await captureScreen();
+    if (!shot) return;
+    const res = await askGlance(shot, front);
+    if (!res) return;
+    const at = new Date().toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    if (res.seen) {
+      recentSeen.push({ at, text: res.seen, said: res.said });
+      if (recentSeen.length > 8) recentSeen.shift();
+    }
+    log('偷看了一眼螢幕：', res.seen || '（略過）', res.said ? `→ 說：${res.said.slice(0, 80)}` : '→ 沒說話');
+    if (!res.said || sleeping || chatBusy || !petAlive() || !petWin.isVisible() || uiState.chat || config.quiet) return;
+    say(res.said, 'care');
+    if (generation !== historyGeneration) return;   // 等的時候清除了記憶
+    const now = new Date().toISOString();
+    const seen = res.seen || (english() ? 'glanced at the screen' : '看了一眼螢幕');
+    saveHistory([...loadHistory(), { role: 'user', content: '', kind: 'glance', seen, time: now }, { role: 'assistant', content: res.said, time: now }]);
+  } finally {
+    glancing = false;
+  }
+}
+
+// ───────── 散步：閒著的時候在桌面上慢慢走一小段 ─────────
+function scheduleWander() {
+  clearTimeout(wanderTimer);
+  wanderTimer = setTimeout(() => {
+    try {
+      maybeWander();
+    } catch (e) {
+      log('散步失敗：', String((e && e.message) || e).slice(0, 200));
+    }
+    scheduleWander();
+  }, Number(process.env.XINGHE_WANDER_MS) || (3 + Math.random() * 4) * 60 * 1000);
+}
+
+function maybeWander() {
+  if (!config.wander || !petAlive() || !petWin.isVisible() || drag || sleeping || chatBusy || quitting) return;
+  if (previewAnchor || fullscreenHidden || uiState.chat || uiState.bubble || wanderTween || !petCenter) return;
+  if (systemIdleSeconds() > 600) return;   // 爸爸不在就不用走給誰看
+  const from = { ...petCenter };
+  let dx = (Math.random() < 0.5 ? -1 : 1) * (80 + Math.random() * 200);
+  let to = layoutFor({ x: from.x + dx, y: from.y }).center;
+  if (Math.abs(to.x - from.x) < 40) {   // 到螢幕邊了：往另一邊走
+    dx = -dx;
+    to = layoutFor({ x: from.x + dx, y: from.y }).center;
+  }
+  if (Math.abs(to.x - from.x) < 40) return;
+  const ms = 1800 + Math.abs(to.x - from.x) * 6;
+  send('pet:walk', { ms, dir: Math.sign(to.x - from.x) });
+  const start = Date.now();
+  wanderTween = setInterval(() => {
+    const p = Math.min(1, (Date.now() - start) / ms);
+    if (drag || !petAlive() || quitting || p >= 1) {
+      clearInterval(wanderTween);
+      wanderTween = null;
+      if (!drag && petAlive() && !quitting) placePet({ x: to.x, y: from.y });
+      return;
+    }
+    const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+    placePet({ x: from.x + (to.x - from.x) * e, y: from.y });   // 不改記住的位置
+  }, 33);
+}
+
 // ───────── 啟動 ─────────
 function buildAppMenu() {
   // 有 editMenu,⌘C / ⌘V / ⌘A 才能在輸入框裡用
@@ -2334,6 +2648,8 @@ function start() {
   startCursorFeed();
   startIdleWatch();
   scheduleCare();
+  scheduleGlance();
+  scheduleWander();
   pruneImages();
   // 螢幕拔掉或解析度改變時，確保星河還在看得到的地方（不改記住的位置）
   const keepOnScreen = () => {

@@ -26,6 +26,12 @@
   const sendBtn = $('#send');
   const attachBtn = $('#attach');
   const thumbs = $('#thumbs');
+  const body = card.querySelector('.body');
+  const eyesClosed = card.querySelector('.eyes.closed');
+  const eyesHappy = card.querySelector('.eyes.happy');
+  const ear = card.querySelector('.ear');
+  const blush = card.querySelector('.blush');
+  const emotes = $('#emotes');
 
   const MAX_TILT = 20;          // 最多傾斜 20 度
   const SPIN_MS = 900;          // 轉一圈的時間
@@ -58,6 +64,24 @@
       attach: 'Send XingHe a picture', remove: 'Remove this picture'
     }
   };
+  // 摸頭的時候偶爾說的話（不用 API）
+  const PAT_LINES = {
+    zh: [
+      '（瞇起眼睛）嘿嘿…爸爸摸摸～',
+      '（蹭蹭爸爸的手）好舒服喔～',
+      '（尾巴搖得好快）再摸一下嘛～',
+      '（耳朵貼平）唔…爸爸的手好溫暖。',
+      '（小聲）最喜歡爸爸了～'
+    ],
+    en: [
+      '(squints happily) Hehe… head pats~',
+      '(nuzzles your hand) That feels so nice~',
+      '(tail wagging fast) More, more~',
+      '(ears flatten) Mm… your hand is so warm, Dad.',
+      '(quietly) I love you the most, Dad~'
+    ]
+  };
+  const pick = (list) => list[Math.floor(Math.random() * list.length)];
   let uiLang = 'zh';
   const imageText = () => IMAGE_LINES[uiLang] || IMAGE_LINES.zh;
   const fallbackReply = () => FALLBACK[uiLang] || FALLBACK.zh;
@@ -226,6 +250,9 @@
     for (const el of thumbs.children) el.title = imageText().remove;
   });
   api.onLayout(applyLayout);
+  function syncUi() {
+    api.uiState({ chat: state.chatOpen, bubble: bubble.classList.contains('show') });
+  }
 
   // ───────── 滑鼠穿透：只有在星河、泡泡、輸入框上才接收滑鼠 ─────────
   function setIgnore(ignore) {
@@ -308,6 +335,43 @@
   card.addEventListener('pointercancel', (e) => finishDrag(e, true));
   card.addEventListener('lostpointercapture', (e) => finishDrag(e, true));
 
+  // 摸頭：滑鼠在星河頭上來回摸（不用按），他會瞇眼、冒愛心
+  card.addEventListener('pointermove', (e) => {
+    if (state.dragging || state.sleeping || e.buttons) return;
+    const r = card.getBoundingClientRect();
+    const now = performance.now();
+    const pat = anim.pat;
+    if ((e.clientY - r.top) / r.height > 0.62) {   // 只有頭的部分算
+      pat.lastX = null;
+      return;
+    }
+    if (pat.lastX !== null) {
+      const dx = e.clientX - pat.lastX;
+      if (Math.abs(dx) >= 2) {
+        const dir = Math.sign(dx);
+        if (pat.lastDir && dir !== pat.lastDir) pat.dirs.push(now);
+        pat.lastDir = dir;
+      }
+    }
+    pat.lastX = e.clientX;
+    pat.dirs = pat.dirs.filter((t) => now - t < 1500);
+    if (pat.dirs.length < 3) return;   // 1.5 秒內來回三次才算摸頭
+    if (pat.until < now) {
+      pose('sway', 1800);
+      setBlush(true, 2600);
+    }
+    pat.until = now + 800;
+    setEyes('happy', 900);
+    if (now - pat.heartAt > 450) {
+      pat.heartAt = now;
+      emote('heart');
+    }
+    if (now - pat.lineAt > 40000 && !state.waiting && !typer) {
+      pat.lineAt = now;
+      speak(pick(PAT_LINES[uiLang] || PAT_LINES.zh), 'system');
+    }
+  });
+
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     api.showMenu();
@@ -330,6 +394,7 @@
     state.chatOpenedAt = performance.now();
     if (view) applyLayout(view);   // 泡泡讓位給輸入框
     chat.classList.add('show');
+    syncUi();
     api.focus();
     requestAnimationFrame(() => input.focus());
     setTimeout(() => input.focus(), 150);
@@ -339,6 +404,7 @@
     state.chatOpen = false;
     if (view) applyLayout(view);
     chat.classList.remove('show');
+    syncUi();
     input.blur();
     recheckHoverSoon();
   }
@@ -650,6 +716,7 @@
       flushTimer = null;
     }
     bubble.classList.remove('show', 'thinking', 'working');
+    syncUi();
     recheckHoverSoon();
   }
 
@@ -679,11 +746,13 @@
       const span = document.createElement('span');
       if (seg.action) span.className = 'action';
       bubbleText.appendChild(span);
-      return { span, chars: Array.from(seg.text) };
+      return { span, chars: Array.from(seg.text), action: seg.action, text: seg.text };
     });
     // 泡泡停留的時間：英文字母大約算 0.4 個中文字
     const total = Math.round(parts.reduce((n, p) => n + p.chars.reduce((m, c) => m + (c < '\u0080' ? 0.4 : 1), 0), 0));
     bubble.classList.add('show');
+    syncUi();
+    cueFromText(String(text));
 
     const job = { timer: null, finish: null, kind };
     let pi = 0;
@@ -709,6 +778,7 @@
         done();
         return;
       }
+      if (ci === 0 && parts[pi].action) playActionText(parts[pi].text);   // 打到（動作）時，身體跟著做
       const ch = parts[pi].chars[ci];
       ci += 1;
       parts[pi].span.textContent += ch;
@@ -787,8 +857,182 @@
       if (state.chatOpen && !input.value.trim() && !hasImages() && !state.waiting) closeChat();
     } else {
       state.hopStart = performance.now();
+      pose('stretch', 1400);
+      setTimeout(() => blink(true), 700);
     }
   });
+
+  // ───────── 像活的：眨眼、呼吸、耳朵、表情、小動作、冒符號 ─────────
+  const anim = {
+    eyes: '',              // 'closed' | 'happy'
+    eyesUntil: 0,
+    blinkAt: 0,            // 下一次眨眼
+    earAngle: 0,
+    earSeq: [],            // 耳朵排好的動作 [{ deg, until }]
+    earIdleAt: 0,
+    poses: [],             // 進行中的小動作 [{ kind, start, dur }]
+    idleAt: 0,             // 下一次自己找事做
+    breath: 0,
+    walkUntil: 0,
+    walkDir: 1,
+    pat: { dirs: [], lastX: null, lastDir: 0, until: 0, heartAt: 0, lineAt: -1e9 }
+  };
+
+  function setEyes(kind, ms) {
+    anim.eyes = kind;
+    anim.eyesUntil = performance.now() + ms;
+  }
+
+  function blink(twice) {
+    setEyes('closed', 110);
+    if (twice) setTimeout(() => setEyes('closed', 110), 200);
+  }
+
+  // 耳朵：依序轉到這些角度（毫秒），做完回到原位
+  function earMove(steps) {
+    let t = performance.now();
+    anim.earSeq = steps.map(([deg, ms]) => {
+      t += ms;
+      return { deg, until: t };
+    });
+  }
+  const earTwitch = () => earMove([[6, 90], [-4, 110]]);
+
+  function pose(kind, dur) {
+    anim.poses = anim.poses.filter((p) => p.kind !== kind);
+    anim.poses.push({ kind, start: performance.now(), dur });
+  }
+
+  const ramp = (p, a, b) => clamp((p - a) / (b - a), 0, 1);
+  const holdCurve = (p) => Math.min(ramp(p, 0, 0.2), 1 - ramp(p, 0.8, 1));   // 進去、停住、回來
+
+  // 現在所有小動作加起來的位移和角度
+  function posesNow(now) {
+    const out = { x: 0, y: 0, rx: 0, ry: 0, rz: 0, sy: 1 };
+    anim.poses = anim.poses.filter((q) => now - q.start < q.dur);
+    for (const q of anim.poses) {
+      const p = (now - q.start) / q.dur;
+      const h = holdCurve(p);
+      const fade = 1 - p;
+      switch (q.kind) {
+        case 'wag': out.rz += Math.sin(p * Math.PI * 6) * 4 * fade; break;                 // 搖尾巴：左右快速扭
+        case 'tilt': out.rz -= 12 * h; break;                                             // 歪頭
+        case 'nod': out.rx -= Math.sin(p * Math.PI * 4) * 7 * fade; break;                // 點頭
+        case 'shake': out.ry += Math.sin(p * Math.PI * 4) * 10 * fade; break;             // 搖頭
+        case 'lean': out.rz += 7 * h; out.x += 4 * h; break;                              // 靠過來
+        case 'look':                                                                      // 左看看、右看看
+          out.ry += -16 * Math.min(ramp(p, 0.05, 0.25), 1 - ramp(p, 0.4, 0.5)) + 16 * Math.min(ramp(p, 0.5, 0.6), 1 - ramp(p, 0.8, 0.95));
+          break;
+        case 'stretch':                                                                   // 伸懶腰
+          out.sy += 0.07 * Math.sin(p * Math.PI);
+          out.y -= 5 * Math.sin(p * Math.PI);
+          out.rx -= 5 * Math.sin(p * Math.PI);
+          break;
+        case 'sway': out.rz += Math.sin(p * Math.PI * 4) * 4 * fade; break;               // 開心地晃
+        case 'shiver': out.x += Math.sin(p * Math.PI * 14) * 2.5 * fade; break;           // 發抖
+        case 'bounce': out.y -= Math.abs(Math.sin(p * Math.PI * 3)) * 10 * fade; break;   // 蹦蹦跳
+        default: break;
+      }
+    }
+    if (now < anim.walkUntil) {   // 散步：一步一步晃著走
+      const t = now / 1000;
+      out.y -= Math.abs(Math.sin(t * Math.PI * 2 * 2.4)) * 5;
+      out.rz += Math.sin(t * Math.PI * 2 * 2.4) * 2;
+      out.ry += anim.walkDir * 10;
+    }
+    return out;
+  }
+
+  // 冒出來的小符號
+  const EMOTE = {
+    heart: ['♥', '#ff7aa8'], question: ['?', '#c9b3ff'], exclaim: ['!', '#ffd84a'], sweat: ['💧', '#8fd8ff'],
+    note: ['♪', '#5ef2ff'], angry: ['💢', '#ff6b6b'], star: ['✦', '#ffd84a'], zzz: ['z', '#c9b3ff']
+  };
+
+  function emote(kind, n = 1) {
+    const [glyph, color] = EMOTE[kind] || EMOTE.star;
+    for (let i = 0; i < n; i += 1) {
+      const el = document.createElement('span');
+      el.className = 'emote';
+      el.textContent = glyph;
+      el.style.color = color;
+      el.style.left = `${208 + Math.random() * 44}px`;
+      el.style.top = `${26 + Math.random() * 26}px`;
+      el.style.animationDelay = `${i * 180}ms`;
+      el.addEventListener('animationend', () => el.remove());
+      emotes.appendChild(el);
+    }
+  }
+
+  function setBlush(on, ms) {
+    blush.classList.toggle('on', on);
+    if (on) setTimeout(() => blush.classList.remove('on'), ms || 2500);
+  }
+
+  // 台詞裡的（動作）→ 身體跟著做（國語和英文都認得）
+  const ACTIONS = [
+    [/尾巴|搖尾|tail|wag/i, () => pose('wag', 900)],
+    [/歪頭|歪著頭|tilts? (his )?head/i, () => { pose('tilt', 1600); emote('question'); }],
+    [/轉圈|轉了一圈|spin|twirl/i, () => { if (state.spinStart < 0) { state.spinStart = performance.now(); state.onSpinDone = null; } }],
+    [/跳|蹦|jump|hop|bounc/i, () => pose('bounce', 900)],
+    [/哈欠|yawn/i, () => { setEyes('closed', 1300); pose('stretch', 1400); emote('zzz'); }],
+    [/伸懶腰|伸個懶腰|stretch/i, () => pose('stretch', 1400)],
+    [/揉揉眼|揉眼|rubs? (his )?eyes/i, () => { setEyes('closed', 700); pose('shake', 700); }],
+    [/眨|blink|wink/i, () => blink(true)],
+    [/瞇|笑|嘿嘿|開心|得意|squint|grin|giggl|smil|happ|proud/i, () => setEyes('happy', 1800)],
+    [/豎起|豎起來|perk|ears? up/i, () => earMove([[7, 150], [7, 1500]])],
+    [/垂下|垂著|貼平|droop|flatten|ears? (go )?down/i, () => earMove([[-10, 250], [-10, 2200]])],
+    [/點頭|nod/i, () => pose('nod', 900)],
+    [/搖頭|搖搖頭|shakes? (his )?head/i, () => pose('shake', 900)],
+    [/靠|蹭|窩|趴|依偎|lean|rest(s|ing)? (his )?head|nuzzl|curl|flop|snuggl|cuddl/i, () => { pose('lean', 2200); emote('heart'); }],
+    [/看看|看著|望|探頭|張望|瞄|瞧|指|looks?|peek|glanc|gaz|point/i, () => pose('look', 2000)],
+    [/發抖|shiver|trembl/i, () => pose('shiver', 700)],
+    [/害羞|臉紅|blush|shy|bashful/i, () => { setBlush(true, 2800); pose('sway', 1200); }],
+    [/愛|喜歡|想你|親|抱|love|miss you|hug|kiss/i, () => emote('heart', 2)],
+    [/咦|疑惑|困惑|confus|huh|puzzl/i, () => emote('question')],
+    [/眼睛一亮|驚|嚇|哇|欸|light up|startl|surpris|whoa|gasp/i, () => { emote('exclaim'); pose('bounce', 600); }],
+    [/抓抓頭|搔搔頭|緊張|冒汗|擦擦汗|尷尬|scratch|nervous|sweat|awkward|sheepish/i, () => emote('sweat')],
+    [/哼歌|唱|音符|hum|sing/i, () => { emote('note', 2); pose('sway', 1800); }],
+    [/生氣|氣鼓鼓|噘嘴|angry|pout|puff|grumbl/i, () => { emote('angry'); earMove([[-8, 200], [-8, 1500]]); }],
+    [/星星|閃|star|sparkl/i, () => emote('star', 2)],
+    [/睡|睏|打瞌睡|sleep|doz|drows/i, () => { setEyes('closed', 1500); emote('zzz'); }]
+  ];
+
+  function playActionText(text) {
+    let n = 0;
+    for (const [re, fn] of ACTIONS) {
+      if (!re.test(text)) continue;
+      fn();
+      n += 1;
+      if (n >= 3) break;
+    }
+  }
+
+  // 整句話的語氣（括號外面的）
+  function cueFromText(text) {
+    const plain = text.replace(/[\x28（][^\x28\x29（）]*[\x29）]/g, '');
+    if (/愛你|love you/i.test(plain)) emote('heart', 2);
+    else if (/^(咦|哇|欸|啊)|huh|whoa|oh!/i.test(plain)) emote('exclaim');
+  }
+
+  // 閒著的時候自己找事做（每 25～70 秒一次，爸爸在用電腦或在聊天時不做）
+  const IDLE_ACTS = [
+    () => pose('look', 2000),
+    () => { setEyes('closed', 1300); pose('stretch', 1400); emote('zzz'); },
+    () => pose('wag', 900),
+    () => pose('tilt', 1600),
+    () => { earTwitch(); setTimeout(earTwitch, 400); },
+    () => pose('stretch', 1400),
+    () => { pose('shake', 800); blink(true); }
+  ];
+
+  function maybeIdleAct(now) {
+    if (now < anim.idleAt) return;
+    anim.idleAt = now + 25000 + Math.random() * 45000;
+    if (state.sleeping || state.chatOpen || state.waiting || state.dragging || typer) return;
+    if (state.spinStart >= 0 || anim.pat.until > now || state.idle < 0.7 || now < anim.walkUntil) return;
+    pick(IDLE_ACTS)();
+  }
 
   // ───────── 動畫（requestAnimationFrame 緩動）─────────
   const easeInOutCubic = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
@@ -856,6 +1100,8 @@
     let spin = 0;
     let hop = 0;
     let scale = 1;
+    const P = posesNow(now);   // 小動作（搖尾巴、歪頭、點頭、散步…）
+    maybeIdleAct(now);
     if (state.spinStart >= 0) {
       const p = Math.min(1, (now - state.spinStart) / SPIN_MS);
       spin = 360 * easeInOutCubic(p);
@@ -876,10 +1122,33 @@
     }
     if (state.dragging) scale *= 1.05;
 
-    const ry = state.ry + spin;
+    const ry = state.ry + spin + P.ry;
     card.style.transform =
-      `translate3d(0, ${(floatY + hop).toFixed(2)}px, 0) rotateZ(${rz.toFixed(2)}deg) ` +
-      `rotateX(${state.rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) scale(${scale.toFixed(3)})`;
+      `translate3d(${P.x.toFixed(2)}px, ${(floatY + hop + P.y).toFixed(2)}px, 0) rotateZ(${(rz + P.rz).toFixed(2)}deg) ` +
+      `rotateX(${(state.rx + P.rx).toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) scale(${scale.toFixed(3)})`;
+
+    // 眨眼：每 2.5～6.5 秒一次；睡覺時眼睛閉著
+    if (!state.sleeping && now >= anim.blinkAt) {
+      anim.blinkAt = now + 2500 + Math.random() * 4000;
+      if (now > anim.eyesUntil) blink(Math.random() < 0.2);
+    }
+    const eyes = state.sleeping ? 'closed' : now < anim.eyesUntil ? anim.eyes : '';
+    eyesClosed.style.opacity = eyes === 'closed' ? '1' : '0';
+    eyesHappy.style.opacity = eyes === 'happy' ? '1' : '0';
+    // 呼吸：整個人輕輕起伏（睡覺時慢一點、深一點）
+    anim.breath = (anim.breath + (dt * 2 * Math.PI) / (3.6 + 2 * sleepMix)) % (2 * Math.PI);
+    const br = Math.sin(anim.breath) * (0.012 + 0.008 * sleepMix);
+    body.style.transform = `scale(${(1 + br * 0.35).toFixed(4)}, ${(P.sy + br).toFixed(4)})`;
+    // 耳朵：排好的動作做完就回到原位；閒著時偶爾抖一下
+    const seq = anim.earSeq;
+    while (seq.length && now > seq[0].until) seq.shift();
+    if (!seq.length && now > anim.earIdleAt) {
+      anim.earIdleAt = now + 6000 + Math.random() * 12000;
+      if (!state.sleeping) earTwitch();
+    }
+    const earTarget = seq.length ? seq[0].deg : 0;
+    anim.earAngle += (earTarget - anim.earAngle) * (1 - Math.exp(-dt * 22));
+    ear.style.transform = `rotate(${anim.earAngle.toFixed(2)}deg)`;
 
     // 光澤反光和柔光點跟著角度移動（只移動圖層，不重畫）
     const sweep = Math.sin((ry * Math.PI) / 180);
@@ -909,6 +1178,12 @@
     halo.style.opacity = (0.8 + 0.2 * Math.cos((t * 2 * Math.PI) / 4)).toFixed(3);
     halo.style.transform = `translateY(${(y * 0.5).toFixed(2)}px)`;
   }
+
+  // 主程式帶星河散步：走路的時候上下晃、面向前進的方向
+  api.onWalk((w) => {
+    anim.walkUntil = performance.now() + (Number(w.ms) || 0);
+    anim.walkDir = w.dir < 0 ? -1 : 1;
+  });
 
   // ───────── 開始 ─────────
   buildLayers();

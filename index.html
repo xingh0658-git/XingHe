@@ -28,7 +28,14 @@
             <div class="back-name">星河</div>
           </div>
           <div class="face">
-            <img src="xinghe.png" alt="星河" draggable="false">
+            <!-- 星河本人：底圖 + 閉眼 / 開心的眼睛 + 會動的耳朵 + 臉紅（都用同一張圖做的） -->
+            <div class="body">
+              <img class="base" src="xinghe.png" alt="星河" draggable="false">
+              <img class="eyes closed" src="xinghe-eyes-closed.png" alt="" draggable="false">
+              <img class="eyes happy" src="xinghe-eyes-happy.png" alt="" draggable="false">
+              <img class="ear" src="xinghe-ear.png" alt="" draggable="false">
+              <div class="blush"><i></i><i></i></div>
+            </div>
             <div class="glare"></div>
             <div class="shine"></div>
             <div class="rim"><i></i></div>
@@ -36,6 +43,7 @@
         </div>
       </div>
       <div id="zzz"><span>Z</span><span>z</span><span>z</span></div>
+      <div id="emotes"></div>
     </div>
 
     <!-- 聊天輸入框 -->
